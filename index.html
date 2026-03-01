@@ -1,206 +1,70 @@
 <!DOCTYPE html>
 <html>
 <head>
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Universal Payment</title>
-<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600&display=swap" rel="stylesheet">
-
-<style>
-*{margin:0;padding:0;box-sizing:border-box;font-family:Poppins,sans-serif;}
-
-body{
-  background:linear-gradient(135deg,#0f2027,#203a43,#2c5364);
-  color:white;
-  min-height:100vh;
-  overflow-x:hidden;
-}
-
-.screen{
-  display:none;
-  padding:20px;
-  padding-bottom:100px;
-  animation:fade 0.4s ease;
-}
-
-.active{display:block;}
-
-@keyframes fade{
-  from{opacity:0;transform:translateY(10px);}
-  to{opacity:1;transform:translateY(0);}
-}
-
-/* Balance Card */
-.balance-card{
-  background:linear-gradient(135deg,#6a11cb,#2575fc);
-  padding:25px;
-  border-radius:20px;
-  margin-bottom:20px;
-  box-shadow:0 15px 30px rgba(0,0,0,0.4);
-}
-
-.balance{
-  font-size:32px;
-  font-weight:600;
-  margin-top:10px;
-}
-
-/* Glass Card */
-.glass{
-  background:rgba(255,255,255,0.08);
-  backdrop-filter:blur(15px);
-  padding:18px;
-  border-radius:18px;
-  margin-bottom:15px;
-  box-shadow:0 8px 25px rgba(0,0,0,0.3);
-}
-
-/* Buttons */
-.btn{
-  background:linear-gradient(135deg,#ff416c,#ff4b2b);
-  padding:12px;
-  border-radius:12px;
-  text-align:center;
-  margin-top:10px;
-  cursor:pointer;
-  transition:0.3s;
-}
-
-.btn:hover{transform:translateY(-3px);}
-
-/* Inputs */
-input{
-  width:100%;
-  padding:12px;
-  border:none;
-  border-radius:12px;
-  margin-top:10px;
-  background:rgba(255,255,255,0.1);
-  color:white;
-}
-
-/* Bottom Nav */
-.bottom-nav{
-  position:fixed;
-  bottom:0;
-  width:100%;
-  display:flex;
-  justify-content:space-around;
-  background:rgba(0,0,0,0.6);
-  backdrop-filter:blur(20px);
-  padding:12px 0;
-}
-
-.nav-btn{
-  text-align:center;
-  font-size:14px;
-  cursor:pointer;
-}
-
-/* Sidebar */
-.sidebar{
-  position:fixed;
-  top:0;
-  left:-250px;
-  width:250px;
-  height:100%;
-  background:rgba(0,0,0,0.9);
-  backdrop-filter:blur(20px);
-  padding:20px;
-  transition:0.4s;
-}
-
-.sidebar.active{left:0;}
-
-.menu-item{
-  margin:20px 0;
-  cursor:pointer;
-}
-</style>
+  <title>Universal Payment</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="stylesheet" href="style.css">
 </head>
-
 <body>
 
-<!-- Sidebar -->
-<div class="sidebar" id="sidebar">
-  <h2>Universal Payment</h2>
-  <div class="menu-item" onclick="showScreen('home')">🏠 Dashboard</div>
-  <div class="menu-item" onclick="showScreen('referral')">🎁 Referral</div>
-  <div class="menu-item" onclick="showScreen('admin')">👑 Admin</div>
-</div>
+<div id="app">
 
-<!-- HOME -->
-<div class="screen active" id="home">
-  <div onclick="toggleSidebar()">☰ Menu</div>
-
-  <div class="balance-card">
-    <div>Available Balance</div>
-    <div class="balance">₹12,540</div>
+  <!-- Login -->
+  <div id="loginBox" class="card">
+    <h2>Universal Payment</h2>
+    <input type="text" id="username" placeholder="Username">
+    <button onclick="login()">Login</button>
   </div>
 
-  <div class="glass" onclick="showScreen('send')">💸 Send Money</div>
-  <div class="glass" onclick="showScreen('withdraw')">🏦 Withdraw</div>
-  <div class="glass" onclick="showScreen('addfund')">➕ Add Fund</div>
+  <!-- Dashboard -->
+  <div id="dashboard" style="display:none;">
+    
+    <div class="card balanceCard">
+      <h3>Balance</h3>
+      <h1 id="balance">₹0</h1>
+    </div>
+
+    <div class="grid">
+      <button onclick="showSend()">Pay</button>
+      <button onclick="showWithdraw()">Withdraw</button>
+      <button onclick="showDeposit()">Add Fund</button>
+      <button onclick="showAdmin()">Admin</button>
+    </div>
+
+  </div>
+
+  <!-- Send -->
+  <div id="sendBox" class="card hidden">
+    <h3>Pay To User</h3>
+    <input type="text" id="payUser" placeholder="Receiver Username">
+    <input type="number" id="payAmount" placeholder="Amount">
+    <button onclick="payUser()">Send</button>
+  </div>
+
+  <!-- Withdraw -->
+  <div id="withdrawBox" class="card hidden">
+    <h3>Withdraw</h3>
+    <input type="number" id="withdrawAmount" placeholder="Amount">
+    <button onclick="withdraw()">Submit</button>
+  </div>
+
+  <!-- Add Fund -->
+  <div id="depositBox" class="card hidden">
+    <h3>Add Fund</h3>
+    <input type="text" id="utr" placeholder="Enter UTR Number">
+    <button onclick="deposit()">Submit</button>
+  </div>
+
+  <!-- Admin -->
+  <div id="adminBox" class="card hidden">
+    <h3>Admin Panel</h3>
+    <input type="text" id="adminUser" placeholder="Username">
+    <input type="number" id="adminAmount" placeholder="Amount to Add">
+    <button onclick="addBalance()">Add Balance</button>
+  </div>
+
 </div>
 
-<!-- SEND -->
-<div class="screen" id="send">
-  <h2>Send Money</h2>
-  <input placeholder="User ID">
-  <input placeholder="Amount">
-  <div class="btn">Send</div>
-</div>
-
-<!-- WITHDRAW -->
-<div class="screen" id="withdraw">
-  <h2>Withdraw Funds</h2>
-  <input placeholder="Amount">
-  <input placeholder="Bank Account">
-  <input placeholder="IFSC Code">
-  <div class="btn">Submit</div>
-</div>
-
-<!-- ADD FUND -->
-<div class="screen" id="addfund">
-  <h2>Add Fund</h2>
-  <div class="glass">📤 Upload Screenshot</div>
-  <input placeholder="Enter UTR Number">
-  <div class="btn">Submit</div>
-</div>
-
-<!-- REFERRAL -->
-<div class="screen" id="referral">
-  <h2>Referral Program</h2>
-  <div class="glass">Your Code: USER123</div>
-  <div class="glass">Referred: 12 | Earned: ₹1250</div>
-  <div class="btn">Share Referral Link</div>
-</div>
-
-<!-- ADMIN -->
-<div class="screen" id="admin">
-  <h2>Admin Dashboard</h2>
-  <div class="glass">Total Users: 520</div>
-  <div class="glass">Pending Withdrawals: 8</div>
-  <div class="glass">Pending Deposits: 6</div>
-</div>
-
-<!-- Bottom Nav -->
-<div class="bottom-nav">
-  <div class="nav-btn" onclick="showScreen('home')">🏠<br>Home</div>
-  <div class="nav-btn" onclick="showScreen('referral')">🎁<br>Referral</div>
-  <div class="nav-btn" onclick="showScreen('admin')">👑<br>Admin</div>
-</div>
-
-<script>
-function showScreen(id){
-  document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));
-  document.getElementById(id).classList.add('active');
-  document.getElementById("sidebar").classList.remove("active");
-}
-
-function toggleSidebar(){
-  document.getElementById("sidebar").classList.toggle("active");
-}
-</script>
-
+<script src="script.js"></script>
 </body>
 </html>
