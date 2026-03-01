@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html>
+<body>
+
+<h2>Deposits</h2>
+
+<div id="list"></div>
+
+<script>
+
+async function load(){
+
+let res = await fetch("http://localhost:3000/deposits")
+let data = await res.json()
+
+let html=""
+
+data.forEach((d,i)=>{
+
+html+=`
+<div>
+User ${d.id}
+Amount ₹${d.amount}
+Status ${d.status}
+
+<button onclick="approve(${i})">Approve</button>
+
+</div>
+<hr>
+`
+
+})
+
+document.getElementById("list").innerHTML=html
+
+}
+
+async function approve(i){
+
+await fetch("http://localhost:3000/approve-deposit",{
+method:"POST",
+headers:{"Content-Type":"application/json"},
+body:JSON.stringify({index:i})
+})
+
+load()
+
+}
+
+load()
+
+</script>
+
+</body>
+</html>
