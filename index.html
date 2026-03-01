@@ -1,70 +1,208 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>Universal Payment</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <link rel="stylesheet" href="style.css">
+  <title>Universal Payment</title>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+
+  <style>
+    body{
+      margin:0;
+      font-family:Arial;
+      background:linear-gradient(135deg,#0f2027,#203a43,#2c5364);
+      color:white;
+      text-align:center;
+      padding:20px;
+    }
+
+    .card{
+      background:rgba(255,255,255,0.08);
+      backdrop-filter:blur(10px);
+      padding:20px;
+      margin:15px 0;
+      border-radius:15px;
+    }
+
+    input{
+      width:90%;
+      padding:10px;
+      margin:8px;
+      border:none;
+      border-radius:10px;
+    }
+
+    button{
+      padding:10px 20px;
+      margin:5px;
+      border:none;
+      border-radius:10px;
+      background:linear-gradient(45deg,#ff416c,#ff4b2b);
+      color:white;
+      font-weight:bold;
+    }
+
+    .balance{
+      font-size:28px;
+      margin-top:10px;
+    }
+  </style>
 </head>
 <body>
 
-<div id="app">
+<h2>Universal Payment</h2>
 
-  <!-- Login -->
-  <div id="loginBox" class="card">
-    <h2>Universal Payment</h2>
-    <input type="text" id="username" placeholder="Username">
-    <button onclick="login()">Login</button>
-  </div>
-
-  <!-- Dashboard -->
-  <div id="dashboard" style="display:none;">
-    
-    <div class="card balanceCard">
-      <h3>Balance</h3>
-      <h1 id="balance">₹0</h1>
-    </div>
-
-    <div class="grid">
-      <button onclick="showSend()">Pay</button>
-      <button onclick="showWithdraw()">Withdraw</button>
-      <button onclick="showDeposit()">Add Fund</button>
-      <button onclick="showAdmin()">Admin</button>
-    </div>
-
-  </div>
-
-  <!-- Send -->
-  <div id="sendBox" class="card hidden">
-    <h3>Pay To User</h3>
-    <input type="text" id="payUser" placeholder="Receiver Username">
-    <input type="number" id="payAmount" placeholder="Amount">
-    <button onclick="payUser()">Send</button>
-  </div>
-
-  <!-- Withdraw -->
-  <div id="withdrawBox" class="card hidden">
-    <h3>Withdraw</h3>
-    <input type="number" id="withdrawAmount" placeholder="Amount">
-    <button onclick="withdraw()">Submit</button>
-  </div>
-
-  <!-- Add Fund -->
-  <div id="depositBox" class="card hidden">
-    <h3>Add Fund</h3>
-    <input type="text" id="utr" placeholder="Enter UTR Number">
-    <button onclick="deposit()">Submit</button>
-  </div>
-
-  <!-- Admin -->
-  <div id="adminBox" class="card hidden">
-    <h3>Admin Panel</h3>
-    <input type="text" id="adminUser" placeholder="Username">
-    <input type="number" id="adminAmount" placeholder="Amount to Add">
-    <button onclick="addBalance()">Add Balance</button>
-  </div>
-
+<div class="card">
+  <div>Balance</div>
+  <div class="balance" id="balance">₹0</div>
 </div>
 
-<script src="script.js"></script>
+<div class="card">
+  <h3>Pay To User</h3>
+  <input type="number" id="payId" placeholder="Receiver Telegram ID">
+  <input type="number" id="payAmount" placeholder="Amount">
+  <button onclick="pay()">Send</button>
+</div>
+
+<div class="card">
+  <h3>Withdraw</h3>
+  <input type="number" id="withdrawAmount" placeholder="Amount">
+  <button onclick="withdraw()">Request Withdraw</button>
+</div>
+
+<div class="card">
+  <h3>Add Fund</h3>
+  <input type="text" id="utr" placeholder="Enter UTR Number">
+  <button onclick="deposit()">Submit Deposit</button>
+</div>
+
+<script>
+
+const SUPABASE_URL = "https://ksyymwybssakthxfuzdd.supabase.co";
+const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtzeXltd3lic3Nha3RoeGZ1emRkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzIzNTM0MzksImV4cCI6MjA4NzkyOTQzOX0.SCKV8iHLTf7Y5JAnXZgmyTvjdhi6LcDmKL6fW8ZnIeI";
+
+const supabase = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+const tg = window.Telegram.WebApp;
+tg.expand();
+
+let telegramId = tg.initDataUnsafe.user.id;
+
+async function initUser(){
+  const { data } = await supabase
+    .from("users")
+    .select("*")
+    .eq("telegram_id", telegramId)
+    .single();
+
+  if(!data){
+    await supabase.from("users").insert([
+      { telegram_id: telegramId, balance: 0 }
+    ]);
+  }
+
+  loadBalance();
+}
+
+async function loadBalance(){
+  const { data } = await supabase
+    .from("users")
+    .select("balance")
+    .eq("telegram_id", telegramId)
+    .single();
+
+  document.getElementById("balance").innerText = "₹" + data.balance;
+}
+
+async function pay(){
+
+  let receiverId = parseInt(document.getElementById("payId").value);
+  let amount = parseInt(document.getElementById("payAmount").value);
+
+  const { data: sender } = await supabase
+    .from("users")
+    .select("*")
+    .eq("telegram_id", telegramId)
+    .single();
+
+  if(sender.balance < amount){
+    alert("Insufficient Balance");
+    return;
+  }
+
+  const { data: receiver } = await supabase
+    .from("users")
+    .select("*")
+    .eq("telegram_id", receiverId)
+    .single();
+
+  if(!receiver){
+    alert("Receiver not found");
+    return;
+  }
+
+  await supabase
+    .from("users")
+    .update({ balance: sender.balance - amount })
+    .eq("telegram_id", telegramId);
+
+  await supabase
+    .from("users")
+    .update({ balance: receiver.balance + amount })
+    .eq("telegram_id", receiverId);
+
+  await supabase.from("transactions").insert([
+    {
+      from_user: telegramId,
+      to_user: receiverId,
+      amount: amount,
+      type: "pay",
+      status: "completed"
+    }
+  ]);
+
+  alert("Payment Successful");
+  loadBalance();
+}
+
+async function withdraw(){
+
+  let amount = parseInt(document.getElementById("withdrawAmount").value);
+
+  await supabase.from("transactions").insert([
+    {
+      from_user: telegramId,
+      to_user: null,
+      amount: amount,
+      type: "withdraw",
+      status: "pending"
+    }
+  ]);
+
+  alert("Withdraw Request Sent");
+}
+
+async function deposit(){
+
+  let utr = document.getElementById("utr").value;
+
+  await supabase.from("transactions").insert([
+    {
+      from_user: telegramId,
+      to_user: null,
+      amount: 0,
+      type: "deposit",
+      status: utr
+    }
+  ]);
+
+  alert("Deposit Request Submitted");
+}
+
+initUser();
+
+</script>
+
 </body>
 </html>
