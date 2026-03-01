@@ -1,0 +1,38 @@
+body{
+font-family: Poppins;
+background:#f5f6ff;
+margin:0;
+}
+
+header{
+padding:15px;
+box-shadow:0 3px 10px rgba(0,0,0,0.1);
+background:white;
+}
+
+.wallet{
+margin:20px;
+padding:25px;
+border-radius:20px;
+color:white;
+background:linear-gradient(45deg,#6a5cff,#4da3ff);
+}
+
+.wallet button{
+padding:10px 20px;
+border:none;
+border-radius:10px;
+}
+
+.actions{
+display:grid;
+grid-template-columns:1fr 1fr;
+gap:15px;
+margin:20px;
+}
+
+.actions button{
+padding:20px;
+border-radius:15px;
+border:none;
+}
