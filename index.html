@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Cashy Wallet</title>
+<title>Premium Wallet</title>
 
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
@@ -11,91 +11,184 @@
 <style>
 body{
   margin:0;
-  background: linear-gradient(180deg,#1e1f3a,#2b2d55);
-  font-family: Arial;
+  font-family: 'Segoe UI', sans-serif;
+  background: linear-gradient(135deg,#141e30,#243b55);
   color:white;
+  overflow-x:hidden;
+}
+
+/* SIDEBAR */
+.sidebar{
+  position:fixed;
+  left:-260px;
+  top:0;
+  width:250px;
+  height:100%;
+  background:#0f172a;
+  padding:20px;
+  transition:0.4s;
+  z-index:1000;
+}
+
+.sidebar.active{
+  left:0;
+}
+
+.sidebar h2{
+  margin-bottom:20px;
+}
+
+.sidebar button{
+  width:100%;
+  margin-bottom:10px;
+  padding:10px;
+  border:none;
+  border-radius:10px;
+  background:#1e293b;
+  color:white;
+}
+
+/* HEADER */
+.header{
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
   padding:20px;
 }
 
-.top-card{
-  background: rgba(255,255,255,0.08);
-  backdrop-filter: blur(15px);
-  border-radius:20px;
+.menu-btn{
+  font-size:22px;
+  cursor:pointer;
+}
+
+/* BALANCE CARD */
+.card{
+  margin:20px;
   padding:20px;
-  margin-bottom:20px;
+  border-radius:20px;
+  background:rgba(255,255,255,0.08);
+  backdrop-filter: blur(15px);
 }
 
 .balance{
-  font-size:36px;
+  font-size:32px;
   font-weight:bold;
 }
 
-.row{
+/* ACTION BUTTONS */
+.actions{
   display:flex;
-  justify-content:space-between;
-  margin-top:10px;
-  opacity:0.8;
-}
-
-.quick-actions{
-  display:flex;
-  gap:12px;
-  overflow-x:auto;
-  margin-bottom:20px;
+  gap:10px;
+  padding:0 20px;
 }
 
 .action{
-  min-width:100px;
-  background:#ffffff10;
-  padding:15px;
+  flex:1;
+  padding:12px;
   border-radius:15px;
   text-align:center;
-  font-size:14px;
+  background:#ffffff15;
+  cursor:pointer;
 }
 
+/* SECTION */
 .section{
-  margin-top:20px;
+  padding:20px;
 }
 
-.transactions{
+.ref-box{
   background:#ffffff10;
   padding:15px;
   border-radius:15px;
 }
 
-.tx{
-  display:flex;
-  justify-content:space-between;
+/* POPUP */
+.popup{
+  position:fixed;
+  bottom:-100%;
+  left:0;
+  width:100%;
+  background:#1e293b;
+  padding:20px;
+  border-radius:20px 20px 0 0;
+  transition:0.4s;
+}
+
+.popup.active{
+  bottom:0;
+}
+
+.popup input{
+  width:100%;
+  padding:10px;
+  margin-bottom:10px;
+  border:none;
+  border-radius:10px;
+}
+
+.popup button{
+  width:100%;
+  padding:12px;
+  border:none;
+  border-radius:10px;
+  background:#22c55e;
+  color:white;
+}
+
+/* ADMIN PANEL */
+.admin{
+  display:none;
+  padding:20px;
+}
+
+.admin.active{
+  display:block;
+}
+
+.admin-card{
+  background:#ffffff10;
+  padding:15px;
+  border-radius:15px;
   margin-bottom:10px;
 }
 
-.credit{color:#00ff9d;}
-.debit{color:#ff4d6d;}
-
-canvas{
-  background:#ffffff10;
-  border-radius:15px;
-  padding:10px;
-}
 </style>
 </head>
 
 <body>
 
-<div class="top-card">
-  <div>Available Balance</div>
-  <div class="balance">₹213.07</div>
-  <div class="row">
-    <div>This Month</div>
-    <div style="color:#00ff9d;">+₹25.00</div>
-  </div>
+<div class="sidebar" id="sidebar">
+  <h2>Premium Menu</h2>
+  <button onclick="showDashboard()">Dashboard</button>
+  <button onclick="showAdmin()">Admin Panel</button>
+  <button onclick="toggleSidebar()">Close</button>
 </div>
 
-<div class="quick-actions">
-  <div class="action">💸 Send</div>
-  <div class="action">📥 Receive</div>
+<div class="header">
+  <div class="menu-btn" onclick="toggleSidebar()">☰</div>
+  <div>Premium Wallet</div>
+</div>
+
+<div id="dashboard">
+
+<div class="card">
+  <div>Total Balance</div>
+  <div class="balance">₹213.07</div>
+</div>
+
+<div class="actions">
+  <div class="action" onclick="openPopup()">💸 Send</div>
   <div class="action">🏦 Withdraw</div>
   <div class="action">🎁 Bonus</div>
+</div>
+
+<div class="section">
+  <h3>Referral Dashboard</h3>
+  <div class="ref-box">
+    <p>Your Code: <b>CASHY123</b></p>
+    <p>Total Referrals: 12</p>
+    <p>Earned: ₹240</p>
+  </div>
 </div>
 
 <div class="section">
@@ -103,43 +196,70 @@ canvas{
   <canvas id="chart"></canvas>
 </div>
 
-<div class="section">
-  <h3>Recent Transactions</h3>
-  <div class="transactions">
-    <div class="tx">
-      <div>Payment Sent</div>
-      <div class="debit">-₹17.64</div>
-    </div>
-    <div class="tx">
-      <div>Payment Received</div>
-      <div class="credit">+₹25.00</div>
-    </div>
-    <div class="tx">
-      <div>Bonus Added</div>
-      <div class="credit">+₹10.00</div>
-    </div>
+</div>
+
+<!-- ADMIN PANEL -->
+<div class="admin" id="adminPanel">
+  <h3>Admin Panel</h3>
+
+  <div class="admin-card">
+    Total Users: 152
   </div>
+
+  <div class="admin-card">
+    Total Deposits: ₹45,230
+  </div>
+
+  <div class="admin-card">
+    Total Withdrawals: ₹38,920
+  </div>
+
+  <button onclick="showDashboard()">Back</button>
+</div>
+
+<!-- SEND MONEY POPUP -->
+<div class="popup" id="popup">
+  <h3>Send Money</h3>
+  <input type="text" placeholder="Enter User ID">
+  <input type="number" placeholder="Enter Amount">
+  <button onclick="closePopup()">Send Now</button>
 </div>
 
 <script>
 let tg = window.Telegram.WebApp;
 tg.expand();
 
+function toggleSidebar(){
+  document.getElementById("sidebar").classList.toggle("active");
+}
+
+function openPopup(){
+  document.getElementById("popup").classList.add("active");
+}
+
+function closePopup(){
+  document.getElementById("popup").classList.remove("active");
+}
+
+function showAdmin(){
+  document.getElementById("dashboard").style.display="none";
+  document.getElementById("adminPanel").classList.add("active");
+  toggleSidebar();
+}
+
+function showDashboard(){
+  document.getElementById("dashboard").style.display="block";
+  document.getElementById("adminPanel").classList.remove("active");
+}
+
 new Chart(document.getElementById("chart"), {
   type: 'line',
   data: {
-    labels: ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"],
-    datasets: [{
-      label:"Credit",
-      data:[20,0,50,30,70,10,15],
-      borderColor:"#00ff9d",
-      fill:false
-    },{
-      label:"Debit",
-      data:[40,10,0,20,60,0,5],
-      borderColor:"#ff4d6d",
-      fill:false
-    }]
+    labels:["Mon","Tue","Wed","Thu","Fri","Sat","Sun"],
+    datasets:[
+      {label:"Credit",data:[20,40,10,30,60,15,25],borderColor:"#22c55e",fill:false},
+      {label:"Debit",data:[10,20,5,15,50,5,10],borderColor:"#ef4444",fill:false}
+    ]
   },
   options:{
     plugins:{legend:{labels:{color:"white"}}},
