@@ -3,184 +3,149 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Wallet Dashboard</title>
+<title>Cashy Wallet</title>
 
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
 <style>
-* {
-  margin: 0;
-  padding: 0;
-  box-sizing: border-box;
-  font-family: 'Segoe UI', sans-serif;
+body{
+  margin:0;
+  background: linear-gradient(180deg,#1e1f3a,#2b2d55);
+  font-family: Arial;
+  color:white;
+  padding:20px;
 }
 
-body {
-  background: #f3f4ff;
-  padding: 15px;
+.top-card{
+  background: rgba(255,255,255,0.08);
+  backdrop-filter: blur(15px);
+  border-radius:20px;
+  padding:20px;
+  margin-bottom:20px;
 }
 
-.header {
-  font-size: 22px;
-  font-weight: bold;
-  margin-bottom: 20px;
+.balance{
+  font-size:36px;
+  font-weight:bold;
 }
 
-.balance-card {
-  background: linear-gradient(135deg, #6a5af9, #8d5cf6);
-  padding: 20px;
-  border-radius: 20px;
-  color: white;
-  margin-bottom: 20px;
+.row{
+  display:flex;
+  justify-content:space-between;
+  margin-top:10px;
+  opacity:0.8;
 }
 
-.balance-card h1 {
-  font-size: 32px;
-  margin: 10px 0;
+.quick-actions{
+  display:flex;
+  gap:12px;
+  overflow-x:auto;
+  margin-bottom:20px;
 }
 
-.month {
-  background: rgba(255,255,255,0.2);
-  padding: 6px 12px;
-  border-radius: 20px;
-  display: inline-block;
-  font-size: 14px;
+.action{
+  min-width:100px;
+  background:#ffffff10;
+  padding:15px;
+  border-radius:15px;
+  text-align:center;
+  font-size:14px;
 }
 
-.actions {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 10px;
-  margin-bottom: 20px;
+.section{
+  margin-top:20px;
 }
 
-.action-btn {
-  background: white;
-  padding: 15px;
-  border-radius: 15px;
-  text-align: center;
-  font-size: 14px;
-  box-shadow: 0 5px 15px rgba(0,0,0,0.05);
+.transactions{
+  background:#ffffff10;
+  padding:15px;
+  border-radius:15px;
 }
 
-.section-title {
-  font-weight: bold;
-  margin: 15px 0;
+.tx{
+  display:flex;
+  justify-content:space-between;
+  margin-bottom:10px;
 }
 
-.transactions {
-  background: white;
-  border-radius: 15px;
-  padding: 15px;
-}
+.credit{color:#00ff9d;}
+.debit{color:#ff4d6d;}
 
-.transaction {
-  display: flex;
-  justify-content: space-between;
-  margin-bottom: 12px;
-}
-
-.credit {
-  color: green;
-  font-weight: bold;
-}
-
-.debit {
-  color: red;
-  font-weight: bold;
-}
-
-canvas {
-  background: white;
-  border-radius: 15px;
-  padding: 10px;
+canvas{
+  background:#ffffff10;
+  border-radius:15px;
+  padding:10px;
 }
 </style>
 </head>
 
 <body>
 
-<div class="header">Dashboard</div>
-
-<div class="balance-card">
-  <div>Total Balance</div>
-  <h1>₹213.07</h1>
-  <div class="month">+ ₹25.00 this month</div>
+<div class="top-card">
+  <div>Available Balance</div>
+  <div class="balance">₹213.07</div>
+  <div class="row">
+    <div>This Month</div>
+    <div style="color:#00ff9d;">+₹25.00</div>
+  </div>
 </div>
 
-<div class="actions">
-  <div class="action-btn">🎁 Lifafa</div>
-  <div class="action-btn">💰 Withdraw</div>
-  <div class="action-btn">👤 Pay User</div>
-  <div class="action-btn">🏦 UPI Pay</div>
+<div class="quick-actions">
+  <div class="action">💸 Send</div>
+  <div class="action">📥 Receive</div>
+  <div class="action">🏦 Withdraw</div>
+  <div class="action">🎁 Bonus</div>
 </div>
 
-<div class="section-title">Activity (7 Days)</div>
-<canvas id="activityChart"></canvas>
+<div class="section">
+  <h3>Weekly Activity</h3>
+  <canvas id="chart"></canvas>
+</div>
 
-<div class="section-title">Recent Transactions</div>
-
-<div class="transactions">
-
-  <div class="transaction">
-    <div>
-      <div>Money Sent</div>
-      <small>01 Mar 2026</small>
+<div class="section">
+  <h3>Recent Transactions</h3>
+  <div class="transactions">
+    <div class="tx">
+      <div>Payment Sent</div>
+      <div class="debit">-₹17.64</div>
     </div>
-    <div class="debit">- ₹17.64</div>
-  </div>
-
-  <div class="transaction">
-    <div>
-      <div>Money Received</div>
-      <small>01 Mar 2026</small>
+    <div class="tx">
+      <div>Payment Received</div>
+      <div class="credit">+₹25.00</div>
     </div>
-    <div class="credit">+ ₹25.00</div>
-  </div>
-
-  <div class="transaction">
-    <div>
-      <div>Money Received</div>
-      <small>28 Feb 2026</small>
+    <div class="tx">
+      <div>Bonus Added</div>
+      <div class="credit">+₹10.00</div>
     </div>
-    <div class="credit">+ ₹30.00</div>
   </div>
-
 </div>
 
 <script>
 let tg = window.Telegram.WebApp;
 tg.expand();
 
-// Chart
-const ctx = document.getElementById('activityChart').getContext('2d');
-
-new Chart(ctx, {
+new Chart(document.getElementById("chart"), {
   type: 'line',
   data: {
-    labels: ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'],
-    datasets: [
-      {
-        label: 'Credit',
-        data: [30, 0, 110, 70, 100, 20, 25],
-        borderColor: 'blue',
-        fill: false
-      },
-      {
-        label: 'Debit',
-        data: [120, 0, 10, 0, 230, 0, 15],
-        borderColor: 'red',
-        fill: false
-      }
-    ]
+    labels: ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"],
+    datasets: [{
+      label:"Credit",
+      data:[20,0,50,30,70,10,15],
+      borderColor:"#00ff9d",
+      fill:false
+    },{
+      label:"Debit",
+      data:[40,10,0,20,60,0,5],
+      borderColor:"#ff4d6d",
+      fill:false
+    }]
   },
-  options: {
-    responsive: true,
-    plugins: {
-      legend: {
-        display: true
-      }
+  options:{
+    plugins:{legend:{labels:{color:"white"}}},
+    scales:{
+      x:{ticks:{color:"white"}},
+      y:{ticks:{color:"white"}}
     }
   }
 });
