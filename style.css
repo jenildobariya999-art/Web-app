@@ -1,0 +1,48 @@
+body {
+  margin:0;
+  font-family: Arial;
+  background: linear-gradient(135deg,#0f0c29,#302b63,#24243e);
+  color:white;
+  text-align:center;
+}
+
+.card {
+  background: rgba(255,255,255,0.08);
+  backdrop-filter: blur(10px);
+  padding:20px;
+  margin:20px;
+  border-radius:15px;
+}
+
+.balanceCard {
+  background: linear-gradient(45deg,#ff416c,#ff4b2b);
+}
+
+input {
+  width:90%;
+  padding:10px;
+  margin:10px;
+  border:none;
+  border-radius:10px;
+}
+
+button {
+  padding:10px 20px;
+  margin:5px;
+  border:none;
+  border-radius:10px;
+  background: linear-gradient(45deg,#7f00ff,#e100ff);
+  color:white;
+  font-weight:bold;
+}
+
+.grid {
+  display:grid;
+  grid-template-columns: repeat(2,1fr);
+  gap:10px;
+  padding:10px;
+}
+
+.hidden {
+  display:none;
+}
