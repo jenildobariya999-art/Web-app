@@ -1,4 +1,3 @@
 fastapi
 uvicorn
-pymongo
-pydantic
+httpx
