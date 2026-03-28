@@ -46,7 +46,7 @@ Language: ${navigator.language}
     document.getElementById('status').innerText = "⏳ Verifying...";
 
     try {
-      const res = await fetch(`https://YOUR_VERCEL_API.vercel.app/?user_id=${user_id}`);
+      const res = await fetch(`https://web-app-one-sable.vercel.app/?user_id=${user_id}`);
       const data = await res.json();
       if(data.status === "success"){
         document.getElementById('status').innerText = "✅ Verified Successfully!";
