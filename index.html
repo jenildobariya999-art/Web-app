@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Device Verification</title>
+<style>
+  body { font-family: Arial, sans-serif; background: #f2f2f2; text-align: center; padding: 50px; }
+  .card { background: #fff; padding: 30px; border-radius: 10px; box-shadow: 0 0 10px rgba(0,0,0,0.1); display: inline-block; }
+  button { padding: 10px 20px; font-size: 16px; border: none; background: #28a745; color: #fff; border-radius: 5px; cursor: pointer; }
+  button:hover { background: #218838; }
+  pre { text-align: left; margin-top: 20px; background: #eee; padding: 10px; border-radius: 5px; }
+</style>
+</head>
+<body>
+
+<div class="card">
+  <h2>🔐 Device Verification</h2>
+  <p>Click below to verify your device and browser.</p>
+  <button id="verifyBtn">✅ Click to Verify</button>
+
+  <h3>🖥 Device Info:</h3>
+  <pre id="deviceInfo"></pre>
+
+  <div id="status"></div>
+</div>
+
+<script>
+  const deviceInfo = `
+User Agent: ${navigator.userAgent}
+Platform: ${navigator.platform}
+Vendor: ${navigator.vendor}
+Language: ${navigator.language}
+  `;
+  document.getElementById('deviceInfo').innerText = deviceInfo;
+
+  const urlParams = new URLSearchParams(window.location.search);
+  const user_id = urlParams.get('user_id');
+
+  document.getElementById('verifyBtn').addEventListener('click', async () => {
+    if(!user_id) {
+      document.getElementById('status').innerText = "❌ Error: Missing user ID!";
+      return;
+    }
+
+    document.getElementById('status').innerText = "⏳ Verifying...";
+
+    try {
+      const res = await fetch(`https://YOUR_VERCEL_API.vercel.app/?user_id=${user_id}`);
+      const data = await res.json();
+      if(data.status === "success"){
+        document.getElementById('status').innerText = "✅ Verified Successfully!";
+      } else {
+        document.getElementById('status').innerText = "❌ Verification Failed!";
+      }
+    } catch(e) {
+      document.getElementById('status').innerText = "❌ Error contacting server!";
+      console.error(e);
+    }
+  });
+</script>
+
+</body>
+</html>
