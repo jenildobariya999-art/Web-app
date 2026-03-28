@@ -1,29 +1,31 @@
 from fastapi import FastAPI, Request
-import httpx     # For calling Telegram API
+import httpx
 
 app = FastAPI()
 
 BOT_TOKEN = "8464660617:AAE5sUjb_Y-buaAri4UYIiwoIg1eyk4xQuY"
 TELEGRAM_API = f"https://api.telegram.org/bot{BOT_TOKEN}"
 
+# Simulate database (in production use DB)
+user_tokens = {}  # key=user_id, value=token
+
 @app.get("/")
-def home(user_id: str = None, request: Request = None):
-    """
-    This page verifies device/IP and then triggers /verified command
-    to the user via Telegram Bot API.
-    """
+async def verify(token: str = None, user_id: str = None, request: Request = None):
+    client_ip = request.client.host
 
-    client_host = request.client.host  # visitor IP
+    # Check inputs
+    if not token or not user_id:
+        return {"status":"error","message":"Missing token or user_id"}
 
-    # Here you can add device/IP logic (block, allow lists, rate limits etc)
-    # For demo, we auto verify.
+    # TODO: In production, fetch saved token from DB
+    saved_token = user_tokens.get(user_id)
+    if saved_token != token:
+        return {"status":"error","message":"Invalid token"}
 
-    if user_id:
-        # Send /verified command to bot on behalf of user
-        text = "/verified"
-        send_url = f"{TELEGRAM_API}/sendMessage?chat_id={user_id}&text={text}"
-        httpx.get(send_url)
-
-        return {"status": "success", "message": "Verification completed."}
-    else:
-        return {"status": "error", "message": "Invalid user."}
+    try:
+        # Trigger /verified command
+        url = f"{TELEGRAM_API}/sendMessage?chat_id={user_id}&text=/verified"
+        httpx.get(url)
+        return {"status":"success","message":"User verified"}
+    except Exception as e:
+        return {"status":"error","message":str(e)}
