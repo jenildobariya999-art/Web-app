@@ -1,31 +1,38 @@
 from fastapi import FastAPI, Request
 import httpx
+import hashlib
 
 app = FastAPI()
 
 BOT_TOKEN = "8464660617:AAE5sUjb_Y-buaAri4UYIiwoIg1eyk4xQuY"
 TELEGRAM_API = f"https://api.telegram.org/bot{BOT_TOKEN}"
 
-# Simulate database (in production use DB)
-user_tokens = {}  # key=user_id, value=token
+# In production, use database
+verified_devices = set()  # store fingerprint hashes
 
-@app.get("/")
-async def verify(token: str = None, user_id: str = None, request: Request = None):
-    client_ip = request.client.host
+@app.post("/verify")
+async def verify(request: Request):
+    data = await request.json()
+    fingerprint = data.get("fingerprint")
+    if not fingerprint:
+        return {"status":"error","message":"Fingerprint missing"}
 
-    # Check inputs
-    if not token or not user_id:
-        return {"status":"error","message":"Missing token or user_id"}
+    # Compute fingerprint hash
+    fp_hash = hashlib.sha256(fingerprint.encode()).hexdigest()
 
-    # TODO: In production, fetch saved token from DB
-    saved_token = user_tokens.get(user_id)
-    if saved_token != token:
-        return {"status":"error","message":"Invalid token"}
+    # Check if already verified
+    if fp_hash in verified_devices:
+        return {"status":"error","message":"Device already verified"}
 
+    verified_devices.add(fp_hash)
+
+    # Trigger /verified on bot
     try:
-        # Trigger /verified command
-        url = f"{TELEGRAM_API}/sendMessage?chat_id={user_id}&text=/verified"
+        # Replace <chat_id> with actual chat_id logic if needed
+        # For device-only verification without user_id, you can store chat_id mapping on first click
+        url = f"{TELEGRAM_API}/sendMessage?chat_id=<CHAT_ID>&text=/verified"
         httpx.get(url)
-        return {"status":"success","message":"User verified"}
     except Exception as e:
         return {"status":"error","message":str(e)}
+
+    return {"status":"success","message":"✅ Device Verified Successfully!"}
