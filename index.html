@@ -5,10 +5,10 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Device Verification</title>
 <style>
-body { font-family: Arial; text-align: center; padding: 50px; background:#f2f2f2;}
+body { font-family: Arial; text-align:center; padding:50px; background:#f2f2f2; }
 .card { background:#fff; padding:30px; border-radius:10px; display:inline-block; box-shadow:0 0 10px rgba(0,0,0,0.1);}
-button { padding:10px 20px; font-size:16px; border:none; border-radius:5px; background:#28a745; color:#fff; cursor:pointer;}
-pre { text-align:left; background:#eee; padding:10px; border-radius:5px; margin-top:20px;}
+button { padding:10px 20px; font-size:16px; border:none; border-radius:5px; background:#28a745; color:#fff; cursor:pointer; }
+pre { text-align:left; background:#eee; padding:10px; border-radius:5px; margin-top:20px; }
 </style>
 </head>
 <body>
@@ -23,28 +23,32 @@ pre { text-align:left; background:#eee; padding:10px; border-radius:5px; margin-
 </div>
 
 <script>
-const deviceInfo = `
+const fingerprint = `
 User Agent: ${navigator.userAgent}
 Platform: ${navigator.platform}
 Vendor: ${navigator.vendor}
 Language: ${navigator.language}
+Screen: ${screen.width}x${screen.height}
+Timezone: ${Intl.DateTimeFormat().resolvedOptions().timeZone}
 `;
-document.getElementById('deviceInfo').innerText = deviceInfo;
 
-const urlParams = new URLSearchParams(window.location.search);
-const token = urlParams.get('token');
-const user_id = urlParams.get('user_id');
+document.getElementById('deviceInfo').innerText = fingerprint;
 
 document.getElementById('verifyBtn').addEventListener('click', async () => {
-  if(!token || !user_id){ document.getElementById('status').innerText="❌ Missing token/user_id"; return; }
-
   document.getElementById('status').innerText="⏳ Verifying...";
 
-  try{
-    const res = await fetch(`https://web-app-one-sable.vercel.app/?token=${token}&user_id=${user_id}`);
+  try {
+    const res = await fetch("https://web-app-one-sable.vercel.app/verify", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ fingerprint })
+    });
     const data = await res.json();
     document.getElementById('status').innerText = data.message;
-  }catch(e){ document.getElementById('status').innerText="❌ Error contacting server"; console.error(e);}
+  } catch(e) {
+    document.getElementById('status').innerText = "❌ Error contacting server";
+    console.error(e);
+  }
 });
 </script>
 </body>
