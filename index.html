@@ -5,13 +5,63 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Device Verification</title>
 <style>
-body { font-family: Arial; text-align:center; padding:50px; background:#f2f2f2; }
-.card { background:#fff; padding:30px; border-radius:10px; display:inline-block; box-shadow:0 0 10px rgba(0,0,0,0.1);}
-button { padding:10px 20px; font-size:16px; border:none; border-radius:5px; background:#28a745; color:#fff; cursor:pointer; }
-pre { text-align:left; background:#eee; padding:10px; border-radius:5px; margin-top:20px; }
+body {
+  font-family: Arial, sans-serif;
+  background: linear-gradient(135deg, #71b7e6, #9b59b6);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  height: 100vh;
+  margin: 0;
+}
+
+.card {
+  background: #fff;
+  padding: 30px;
+  border-radius: 15px;
+  box-shadow: 0 10px 25px rgba(0,0,0,0.2);
+  width: 90%;
+  max-width: 450px;
+  text-align: center;
+}
+
+h2 { color: #333; }
+p { font-size: 16px; color: #555; }
+
+button {
+  padding: 12px 25px;
+  font-size: 16px;
+  border: none;
+  border-radius: 8px;
+  background: #28a745;
+  color: #fff;
+  cursor: pointer;
+  margin-top: 15px;
+  transition: background 0.3s;
+}
+
+button:hover { background: #218838; }
+
+pre {
+  text-align: left;
+  background: #f4f4f4;
+  padding: 15px;
+  border-radius: 8px;
+  margin-top: 15px;
+  overflow-x: auto;
+}
+
+#status {
+  margin-top: 20px;
+  font-size: 16px;
+  font-weight: bold;
+}
+#status.success { color: #28a745; }
+#status.failed { color: #dc3545; }
 </style>
 </head>
 <body>
+
 <div class="card">
 <h2>🔐 Device Verification</h2>
 <p>Click below to verify your device</p>
@@ -35,7 +85,9 @@ Timezone: ${Intl.DateTimeFormat().resolvedOptions().timeZone}
 document.getElementById('deviceInfo').innerText = fingerprint;
 
 document.getElementById('verifyBtn').addEventListener('click', async () => {
-  document.getElementById('status').innerText="⏳ Verifying...";
+  const statusEl = document.getElementById('status');
+  statusEl.innerText = "⏳ Verifying...";
+  statusEl.className = "";
 
   try {
     const res = await fetch("https://web-app-one-sable.vercel.app/verify", {
@@ -43,13 +95,24 @@ document.getElementById('verifyBtn').addEventListener('click', async () => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ fingerprint })
     });
+
     const data = await res.json();
-    document.getElementById('status').innerText = data.message;
+
+    if(data.status === "success") {
+      statusEl.innerText = "✅ Device Verified Successfully!";
+      statusEl.className = "success";
+    } else {
+      statusEl.innerText = "❌ Verification Failed: " + (data.message || "Unknown Error");
+      statusEl.className = "failed";
+    }
+
   } catch(e) {
-    document.getElementById('status').innerText = "❌ Error contacting server";
+    statusEl.innerText = "❌ Verification Failed: Server Error";
+    statusEl.className = "failed";
     console.error(e);
   }
 });
 </script>
+
 </body>
 </html>
