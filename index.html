@@ -1,117 +1,124 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
-<meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Device Verification</title>
+<title>Verification</title>
+
 <style>
-body {
-  font-family: Arial, sans-serif;
-  background: linear-gradient(135deg, #71b7e6, #9b59b6);
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  height: 100vh;
-  margin: 0;
+body{
+background:#0a0a23;
+color:white;
+font-family:sans-serif;
+display:flex;
+justify-content:center;
+align-items:center;
+height:100vh;
 }
 
-.card {
-  background: #fff;
-  padding: 30px;
-  border-radius: 15px;
-  box-shadow: 0 10px 25px rgba(0,0,0,0.2);
-  width: 90%;
-  max-width: 450px;
-  text-align: center;
+.card{
+background:#111;
+padding:30px;
+border-radius:20px;
+text-align:center;
+width:90%;
+max-width:400px;
+box-shadow:0 0 20px rgba(0,0,0,0.6);
 }
 
-h2 { color: #333; }
-p { font-size: 16px; color: #555; }
-
-button {
-  padding: 12px 25px;
-  font-size: 16px;
-  border: none;
-  border-radius: 8px;
-  background: #28a745;
-  color: #fff;
-  cursor: pointer;
-  margin-top: 15px;
-  transition: background 0.3s;
+.circle{
+width:120px;
+height:120px;
+border-radius:50%;
+margin:auto;
+display:flex;
+align-items:center;
+justify-content:center;
+font-size:40px;
+border:4px solid #6c63ff;
+animation:spin 2s linear infinite;
 }
 
-button:hover { background: #218838; }
-
-pre {
-  text-align: left;
-  background: #f4f4f4;
-  padding: 15px;
-  border-radius: 8px;
-  margin-top: 15px;
-  overflow-x: auto;
+@keyframes spin{
+100%{transform:rotate(360deg);}
 }
 
-#status {
-  margin-top: 20px;
-  font-size: 16px;
-  font-weight: bold;
+.success{border-color:#00ff9d;color:#00ff9d;}
+.fail{border-color:red;color:red;}
+
+button{
+margin-top:20px;
+padding:12px;
+width:100%;
+border:none;
+border-radius:10px;
+font-size:16px;
 }
-#status.success { color: #28a745; }
-#status.failed { color: #dc3545; }
+
 </style>
 </head>
+
 <body>
 
 <div class="card">
-<h2>🔐 Device Verification</h2>
-<p>Click below to verify your device</p>
-<button id="verifyBtn">✅ Verify</button>
 
-<h3>🖥 Device Info:</h3>
-<pre id="deviceInfo"></pre>
-<div id="status"></div>
+<div id="scan">
+<div class="circle">🔄</div>
+<h2>Scanning Device...</h2>
+</div>
+
+<div id="success" style="display:none">
+<div class="circle success">✔</div>
+<h2>Verified Successfully</h2>
+<button onclick="goBot()">Continue</button>
+</div>
+
+<div id="fail" style="display:none">
+<div class="circle fail">⚠</div>
+<h2 id="failText">Failed</h2>
+<button onclick="goBot()">Back</button>
+</div>
+
 </div>
 
 <script>
-const fingerprint = `
-User Agent: ${navigator.userAgent}
-Platform: ${navigator.platform}
-Vendor: ${navigator.vendor}
-Language: ${navigator.language}
-Screen: ${screen.width}x${screen.height}
-Timezone: ${Intl.DateTimeFormat().resolvedOptions().timeZone}
-`;
 
-document.getElementById('deviceInfo').innerText = fingerprint;
+const urlParams = new URLSearchParams(window.location.search);
+const user = urlParams.get("id");
 
-document.getElementById('verifyBtn').addEventListener('click', async () => {
-  const statusEl = document.getElementById('status');
-  statusEl.innerText = "⏳ Verifying...";
-  statusEl.className = "";
+const fp = navigator.userAgent + navigator.platform + screen.width + screen.height;
 
-  try {
-    const res = await fetch("https://web-app-one-sable.vercel.app/verify", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ fingerprint })
-    });
+setTimeout(async ()=>{
 
-    const data = await res.json();
+try{
 
-    if(data.status === "success") {
-      statusEl.innerText = "✅ Device Verified Successfully!";
-      statusEl.className = "success";
-    } else {
-      statusEl.innerText = "❌ Verification Failed: " + (data.message || "Unknown Error");
-      statusEl.className = "failed";
-    }
-
-  } catch(e) {
-    statusEl.innerText = "❌ Verification Failed: Server Error";
-    statusEl.className = "failed";
-    console.error(e);
-  }
+const res = await fetch("/verify", {
+method:"POST",
+headers:{'Content-Type':'application/json'},
+body: JSON.stringify({fp:fp,user:user})
 });
+
+const data = await res.json();
+
+document.getElementById("scan").style.display="none";
+
+if(data.status=="success"){
+document.getElementById("success").style.display="block";
+}else{
+document.getElementById("fail").style.display="block";
+document.getElementById("failText").innerText=data.message;
+}
+
+}catch{
+document.getElementById("scan").style.display="none";
+document.getElementById("fail").style.display="block";
+}
+
+},2000);
+
+function goBot(){
+window.location.href="https://t.me/YOUR_BOT";
+}
+
 </script>
 
 </body>
