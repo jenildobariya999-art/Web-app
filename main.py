@@ -1,48 +1,54 @@
-from fastapi import FastAPI, Request
-from fastapi.responses import FileResponse, JSONResponse
+from http.server import BaseHTTPRequestHandler
+import json
 import redis
-import os
 import hashlib
 
-app = FastAPI()
+# 🔴 Redis config
+r = redis.Redis.from_url("redis://default:gQAAAAAAAVxuAAIncDIwZWZkNjIwN2QyOTU0YTQ1YWZmMGE5NmE0OWJlMTBmYXAyODkxOTg@climbing-lizard-89198.upstash.io:6379"
+                         ")
 
-# 🔴 CHANGE HERE (Upstash Redis URL)
-REDIS_URL = "redis://default:gQAAAAAAAVxuAAIncDIwZWZkNjIwN2QyOTU0YTQ1YWZmMGE5NmE0OWJlMTBmYXAyODkxOTg@climbing-lizard-89198.upstash.io:6379"
+class handler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        if self.path.startswith("/verify"):
 
-r = redis.from_url(REDIS_URL, decode_responses=True)
+            query = self.path.split("?")[-1]
+            params = dict(x.split("=") for x in query.split("&"))
 
+            uid = params.get("uid", "")
+            ip = self.client_address[0]
+            ua = self.headers.get("User-Agent")
 
-# Home page (UI open karega)
-@app.get("/")
-async def home():
-    return FileResponse("index.html")
+            # 🔐 fingerprint
+            raw = ip + ua
+            fingerprint = hashlib.sha256(raw.encode()).hexdigest()
 
+            key = f"device:{fingerprint}"
 
-# Verification API
-@app.post("/verify")
-async def verify(request: Request):
-    data = await request.json()
+            # ❌ Already used
+            if r.exists(key):
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
 
-    fingerprint = data.get("fingerprint")
-    ip = request.client.host
+                self.wfile.write(json.dumps({
+                    "status": "error",
+                    "message": "Device already used"
+                }).encode())
+                return
 
-    if not fingerprint:
-        return JSONResponse({"status": "error", "msg": "No fingerprint"})
+            # ✅ Save device
+            r.set(key, uid)
 
-    # Unique device ID
-    device_id = hashlib.sha256((fingerprint + ip).encode()).hexdigest()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
 
-    # Check already used
-    if r.get(device_id):
-        return JSONResponse({
-            "status": "blocked",
-            "msg": "❌ Already verified / Fake user detected"
-        })
+            self.wfile.write(json.dumps({
+                "status": "success",
+                "uid": uid
+            }).encode())
+            return
 
-    # Save device
-    r.set(device_id, "verified")
-
-    return JSONResponse({
-        "status": "success",
-        "msg": "✅ Verification Successful"
-    })
+        self.send_response(200)
+        self.end_headers()
+        self.wfile.write(b"OK")
