@@ -1,84 +1,88 @@
-from fastapi import FastAPI, Request
-from fastapi.responses import FileResponse
-import hashlib
+import json
 import os
 import redis
-import requests
 
-app = FastAPI()
-
-BOT_TOKEN = os.getenv("BOT_TOKEN")
-BOT_USERNAME = os.getenv("BOT_USERNAME")
+# ===== REDIS CONNECT =====
 REDIS_URL = os.getenv("REDIS_URL")
+
+if not REDIS_URL:
+    raise Exception("REDIS_URL not set")
 
 r = redis.from_url(REDIS_URL, decode_responses=True)
 
-@app.get("/")
-def home():
-    return FileResponse("index.html")
+# ===== MAIN HANDLER =====
+def handler(request):
 
-@app.post("/verify")
-async def verify(req: Request):
-    data = await req.json()
-
-    uid = str(data.get("uid", ""))
-    ref = str(data.get("ref", ""))
-    ip = str(data.get("ip", ""))
-    vpn = bool(data.get("vpn", False))
-    tg = bool(data.get("telegram", False))
-
-    fingerprint = str(data.get("fingerprint", ""))
-
-    if uid == "" or fingerprint == "":
+    if request.method != "POST":
         return {
-            "status": "error",
-            "message": "Invalid verification request"
+            "statusCode": 405,
+            "body": json.dumps({"error": "Method not allowed"})
         }
 
-    if vpn:
+    try:
+        body = json.loads(request.body)
+
+        user_id = str(body.get("user_id"))
+        fingerprint = body.get("fingerprint")
+        ip = body.get("ip")
+
+        if not user_id or not fingerprint:
+            return {
+                "statusCode": 400,
+                "body": json.dumps({
+                    "status": "error",
+                    "title": "Invalid Request",
+                    "message": "Missing data"
+                })
+            }
+
+        key = f"user:{user_id}"
+        saved_data = r.get(key)
+
+        # ===== FIRST TIME =====
+        if not saved_data:
+            r.set(key, json.dumps({
+                "fingerprint": fingerprint,
+                "ip": ip
+            }))
+
+            return {
+                "statusCode": 200,
+                "body": json.dumps({
+                    "status": "success",
+                    "title": "Verified Successfully",
+                    "message": "Device linked successfully"
+                })
+            }
+
+        saved = json.loads(saved_data)
+
+        # ===== DEVICE MISMATCH =====
+        if saved["fingerprint"] != fingerprint:
+            return {
+                "statusCode": 200,
+                "body": json.dumps({
+                    "status": "error",
+                    "title": "Multiple Devices Detected",
+                    "message": "Access denied (device mismatch)"
+                })
+            }
+
+        # ===== SAME USER =====
         return {
-            "status": "error",
-            "message": "VPN / Proxy detected"
+            "statusCode": 200,
+            "body": json.dumps({
+                "status": "info",
+                "title": "Already Verified",
+                "message": "You are already verified"
+            })
         }
 
-    if not tg:
+    except Exception as e:
         return {
-            "status": "error",
-            "message": "Open this page inside Telegram"
-        }
-
-    fp_hash = hashlib.sha256(fingerprint.encode()).hexdigest()
-
-    old_uid = r.get("fp:" + fp_hash)
-
-    if old_uid and old_uid != uid:
-        return {
-            "status": "error",
-            "message": "This device is already used"
-        }
-
-    r.set("fp:" + fp_hash, uid)
-    r.set("userfp:" + uid, fp_hash)
-
-    if ref != "" and ref != uid:
-        already_referred = r.get("refdone:" + uid)
-
-        if not already_referred:
-            ref_fp = r.get("userfp:" + ref)
-
-            if ref_fp != fp_hash:
-                r.set("refdone:" + uid, "1")
-                r.incr("refs:" + ref)
-
-    requests.get(
-        f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
-        params={
-            "chat_id": uid,
-            "text": "/verified"
-        }
-    )
-
-    return {
-        "status": "success",
-        "message": "Verified successfully"
+            "statusCode": 500,
+            "body": json.dumps({
+                "status": "error",
+                "message": str(e)
+            })
         }
