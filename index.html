@@ -6,11 +6,14 @@
 
 <style>
 body {
+    margin:0;
     background: linear-gradient(135deg,#0f2027,#203a43,#2c5364);
-    color:white;
     font-family:sans-serif;
-    text-align:center;
-    padding-top:100px;
+    color:white;
+    display:flex;
+    justify-content:center;
+    align-items:center;
+    height:100vh;
 }
 
 .box {
@@ -18,16 +21,7 @@ body {
     backdrop-filter: blur(15px);
     padding:30px;
     border-radius:15px;
-    display:inline-block;
-}
-
-button {
-    padding:10px 20px;
-    border:none;
-    border-radius:10px;
-    background:#00c6ff;
-    color:white;
-    font-size:16px;
+    text-align:center;
 }
 </style>
 </head>
@@ -37,31 +31,31 @@ button {
 <div class="box">
     <h2>🔐 Device Verification</h2>
     <p id="status">Checking...</p>
-    <button onclick="verify()">Verify Now</button>
 </div>
 
 <script>
 const urlParams = new URLSearchParams(window.location.search);
 const uid = urlParams.get("uid");
 
-function verify(){
-    document.getElementById("status").innerText = "Verifying...";
+fetch("https://webapp1-ashen.vercel.app/api/verify?uid=" + uid)
+.then(res => res.json())
+.then(data => {
 
-    fetch("/api/verify?uid=" + uid)
-    .then(res => res.json())
-    .then(data => {
+    if(data.status === "success"){
+        document.getElementById("status").innerText = "✅ Verified";
 
-        if(data.status === "success"){
-            document.getElementById("status").innerText = "✅ Verified";
-
+        setTimeout(()=>{
             window.location.href = "https://t.me/YOUR_BOT?start=verify_done";
+        }, 1500);
 
-        } else {
-            document.getElementById("status").innerText = "❌ " + data.message;
-        }
+    } else {
+        document.getElementById("status").innerText = data.message;
+    }
 
-    })
-}
+})
+.catch(() => {
+    document.getElementById("status").innerText = "❌ Network Error";
+});
 </script>
 
 </body>
