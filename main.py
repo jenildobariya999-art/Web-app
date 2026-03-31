@@ -3,65 +3,49 @@ from fastapi.responses import HTMLResponse
 import redis
 import os
 import hashlib
+import urllib.parse
 
 app = FastAPI()
 
-REDIS_URL = os.getenv("REDIS_URL")
-r = redis.from_url(REDIS_URL, decode_responses=True)
+r = redis.from_url(os.getenv("REDIS_URL"), decode_responses=True)
 
 # 🔥 FRONTEND PAGE
 @app.get("/", response_class=HTMLResponse)
-def home():
-    return """
+def home(request: Request):
+    query = dict(request.query_params)
+    uid = query.get("uid", "")
+    ref = query.get("ref", "")
+
+    return f"""
     <html>
     <body>
-    <h2>Verifying Device...</h2>
+    <h2>Verifying...</h2>
 
     <script>
-    function getCanvasFingerprint() {
-        const canvas = document.createElement("canvas");
-        const ctx = canvas.getContext("2d");
-        ctx.textBaseline = "top";
-        ctx.font = "14px Arial";
-        ctx.fillText("fingerprint", 2, 2);
-        return canvas.toDataURL();
-    }
+    function getCanvas() {{
+        const c = document.createElement("canvas");
+        const ctx = c.getContext("2d");
+        ctx.fillText("fp", 10, 10);
+        return c.toDataURL();
+    }}
 
-    async function getAudioFingerprint() {
-        const ctx = new (window.AudioContext || window.webkitAudioContext)();
-        const osc = ctx.createOscillator();
-        const analyser = ctx.createAnalyser();
-
-        osc.type = "triangle";
-        osc.connect(analyser);
-        analyser.connect(ctx.destination);
-        osc.start(0);
-
-        const data = new Uint8Array(analyser.frequencyBinCount);
-        analyser.getByteFrequencyData(data);
-
-        osc.stop();
-
-        return Array.from(data).slice(0, 20).join(",");
-    }
-
-    async function verify() {
-        const canvas = getCanvasFingerprint();
-        const audio = await getAudioFingerprint();
-
-        const res = await fetch("/verify", {
+    async function verify() {{
+        const res = await fetch("/verify", {{
             method: "POST",
-            headers: {"Content-Type": "application/json"},
-            body: JSON.stringify({ canvas, audio })
-        });
+            headers: {{ "Content-Type": "application/json" }},
+            body: JSON.stringify({{
+                uid: "{uid}",
+                ref: "{ref}",
+                canvas: getCanvas()
+            }})
+        }});
 
         const data = await res.json();
         document.body.innerHTML = "<h2>" + JSON.stringify(data) + "</h2>";
-    }
+    }}
 
     verify();
     </script>
-
     </body>
     </html>
     """
@@ -71,17 +55,33 @@ def home():
 async def verify(request: Request):
     data = await request.json()
 
+    uid = data.get("uid")
+    ref = data.get("ref")
+    canvas = data.get("canvas", "")
+
     ip = request.client.host
     ua = request.headers.get("user-agent", "")
-    canvas = data.get("canvas", "")
-    audio = data.get("audio", "")
 
-    raw = ip + ua + canvas + audio
+    raw = ip + ua + canvas
     fp = hashlib.sha256(raw.encode()).hexdigest()
 
-    if r.get(fp):
-        return {"status": "blocked"}
+    # ❌ Same device block
+    if r.get(f"fp:{fp}"):
+        return {"status": "blocked", "reason": "device used"}
 
-    r.set(fp, "1")
+    # ❌ Already verified user
+    if r.get(f"user:{uid}"):
+        return {"status": "already verified"}
+
+    # ✅ Save fingerprint
+    r.set(f"fp:{fp}", uid)
+
+    # ✅ Save user
+    r.set(f"user:{uid}", fp)
+
+    # 🎯 Referral system
+    if ref and ref != uid:
+        if r.get(f"user:{ref}"):
+            r.incr(f"ref_count:{ref}")
 
     return {"status": "verified"}
