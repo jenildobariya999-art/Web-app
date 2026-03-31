@@ -1,97 +1,61 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>Device Verification</title>
-
-  <script src="https://telegram.org/js/telegram-web-app.js"></script>
-  <script src="https://openfpcdn.io/fingerprintjs/v3"></script>
-
-  <style>
-    body {
-      background: #0f172a;
-      color: white;
-      font-family: Arial;
-      text-align: center;
-      padding-top: 120px;
-    }
-    .box {
-      background: #1e293b;
-      padding: 30px;
-      border-radius: 15px;
-      width: 85%;
-      margin: auto;
-    }
-    h2 {
-      margin-bottom: 20px;
-    }
-  </style>
+  <title>Verification</title>
 </head>
-
 <body>
 
-<div class="box">
-  <h2 id="status">🔐 Verifying your device...</h2>
-</div>
+<h2>Verifying Device...</h2>
 
 <script>
-const tg = window.Telegram.WebApp;
+// 🔥 Canvas Fingerprint
+function getCanvasFingerprint() {
+  const canvas = document.createElement("canvas");
+  const ctx = canvas.getContext("2d");
 
-// ❌ Not Telegram
-if (!tg.initDataUnsafe || !tg.initDataUnsafe.user) {
-  document.getElementById("status").innerText = "❌ Open inside Telegram";
-  throw new Error("Not Telegram");
+  ctx.textBaseline = "top";
+  ctx.font = "14px Arial";
+  ctx.fillText("fingerprint", 2, 2);
+
+  return canvas.toDataURL();
 }
 
-// ===== GET IP =====
-async function getIP() {
-  try {
-    let res = await fetch("https://api.ipify.org?format=json");
-    let data = await res.json();
-    return data.ip;
-  } catch {
-    return "unknown";
-  }
+// 🔥 Audio Fingerprint
+async function getAudioFingerprint() {
+  const ctx = new (window.AudioContext || window.webkitAudioContext)();
+  const osc = ctx.createOscillator();
+  const analyser = ctx.createAnalyser();
+
+  osc.type = "triangle";
+  osc.connect(analyser);
+  analyser.connect(ctx.destination);
+
+  osc.start(0);
+
+  const data = new Uint8Array(analyser.frequencyBinCount);
+  analyser.getByteFrequencyData(data);
+
+  osc.stop();
+
+  return Array.from(data).slice(0, 20).join(",");
 }
 
-// ===== VERIFY =====
-FingerprintJS.load().then(async fp => {
+// 🔥 Send to backend
+async function verify() {
+  const canvas = getCanvasFingerprint();
+  const audio = await getAudioFingerprint();
 
-  const result = await fp.get();
-  const fingerprint = result.visitorId;
-  const ip = await getIP();
-  const ua = navigator.userAgent;
+  const res = await fetch("/verify", {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({ canvas, audio })
+  });
 
-  try {
+  const data = await res.json();
+  document.body.innerHTML = "<h2>" + JSON.stringify(data) + "</h2>";
+}
 
-    const res = await fetch("/", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        fingerprint: fingerprint,
-        ip: ip,
-        user_agent: ua
-      })
-    });
-
-    const data = await res.json();
-
-    if (data.status === "success") {
-      document.getElementById("status").innerText = "✅ Verified Successfully";
-    }
-    else if (data.status === "info") {
-      document.getElementById("status").innerText = "✔️ Already Verified";
-    }
-    else {
-      document.getElementById("status").innerText = "🚫 Verification Failed";
-    }
-
-  } catch {
-    document.getElementById("status").innerText = "⚠️ Network Error";
-  }
-
-});
+verify();
 </script>
 
 </body>
