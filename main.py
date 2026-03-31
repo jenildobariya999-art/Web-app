@@ -1,34 +1,84 @@
 from fastapi import FastAPI, Request
+from fastapi.responses import FileResponse
 import hashlib
+import os
+import redis
 import requests
 
 app = FastAPI()
 
-BOT_TOKEN = "8645066724:AAFwkbpnQDmpAjEf-lf-3nraM-A72Q9pd8Q"
-BOT_API = f"https://api.telegram.org/bot{BOT_TOKEN}"
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+BOT_USERNAME = os.getenv("BOT_USERNAME")
+REDIS_URL = os.getenv("REDIS_URL")
 
-# Store verified fingerprints (use DB in real)
-verified = {}
+r = redis.from_url(REDIS_URL, decode_responses=True)
+
+@app.get("/")
+def home():
+    return FileResponse("index.html")
 
 @app.post("/verify")
 async def verify(req: Request):
     data = await req.json()
 
-    fingerprint = data.get("fp")
-    user_id = data.get("user")
+    uid = str(data.get("uid", ""))
+    ref = str(data.get("ref", ""))
+    ip = str(data.get("ip", ""))
+    vpn = bool(data.get("vpn", False))
+    tg = bool(data.get("telegram", False))
 
-    if not fingerprint or not user_id:
-        return {"status":"error","message":"Invalid request"}
+    fingerprint = str(data.get("fingerprint", ""))
 
-    hash_fp = hashlib.sha256(fingerprint.encode()).hexdigest()
+    if uid == "" or fingerprint == "":
+        return {
+            "status": "error",
+            "message": "Invalid verification request"
+        }
 
-    # Check duplicate device
-    if hash_fp in verified:
-        return {"status":"error","message":"Multiple devices detected"}
+    if vpn:
+        return {
+            "status": "error",
+            "message": "VPN / Proxy detected"
+        }
 
-    verified[hash_fp] = user_id
+    if not tg:
+        return {
+            "status": "error",
+            "message": "Open this page inside Telegram"
+        }
 
-    # Send verified command to bot
-    requests.get(f"{BOT_API}/sendMessage?chat_id={user_id}&text=/verified")
+    fp_hash = hashlib.sha256(fingerprint.encode()).hexdigest()
 
-    return {"status":"success","message":"Verified Successfully"}
+    old_uid = r.get("fp:" + fp_hash)
+
+    if old_uid and old_uid != uid:
+        return {
+            "status": "error",
+            "message": "This device is already used"
+        }
+
+    r.set("fp:" + fp_hash, uid)
+    r.set("userfp:" + uid, fp_hash)
+
+    if ref != "" and ref != uid:
+        already_referred = r.get("refdone:" + uid)
+
+        if not already_referred:
+            ref_fp = r.get("userfp:" + ref)
+
+            if ref_fp != fp_hash:
+                r.set("refdone:" + uid, "1")
+                r.incr("refs:" + ref)
+
+    requests.get(
+        f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
+        params={
+            "chat_id": uid,
+            "text": "/verified"
+        }
+    )
+
+    return {
+        "status": "success",
+        "message": "Verified successfully"
+        }
