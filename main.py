@@ -1,74 +1,33 @@
-import json
-import os
+from fastapi import FastAPI, Request
 import redis
+import os
+import hashlib
 
+app = FastAPI()
+
+# Redis connect
 REDIS_URL = os.getenv("REDIS_URL")
-
-if not REDIS_URL:
-    raise Exception("REDIS_URL not set")
-
 r = redis.from_url(REDIS_URL, decode_responses=True)
 
-def handler(request):
+@app.get("/")
+def home():
+    return {"status": "ok"}
 
-    if request.method == "GET":
-        return {
-            "statusCode": 200,
-            "body": json.dumps({"status": "OK"})
-        }
+@app.post("/verify")
+async def verify(request: Request):
+    data = await request.json()
 
-    try:
-        body = json.loads(request.body)
+    ip = request.client.host
+    ua = request.headers.get("user-agent", "")
+    canvas = data.get("canvas", "")
+    audio = data.get("audio", "")
 
-        fingerprint = body.get("fingerprint")
-        ip = body.get("ip")
+    raw = ip + ua + canvas + audio
+    fp = hashlib.sha256(raw.encode()).hexdigest()
 
-        if not fingerprint:
-            return {
-                "statusCode": 400,
-                "body": json.dumps({
-                    "status": "error",
-                    "message": "No fingerprint"
-                })
-            }
+    if r.get(fp):
+        return {"status": "blocked"}
 
-        key = f"verify:{fingerprint}"
-        saved = r.get(key)
+    r.set(fp, "1")
 
-        if not saved:
-            r.set(key, json.dumps({"ip": ip}))
-            return {
-                "statusCode": 200,
-                "body": json.dumps({
-                    "status": "success",
-                    "message": "Verified"
-                })
-            }
-
-        old = json.loads(saved)
-
-        if old["ip"] != ip:
-            return {
-                "statusCode": 200,
-                "body": json.dumps({
-                    "status": "error",
-                    "message": "IP changed"
-                })
-            }
-
-        return {
-            "statusCode": 200,
-            "body": json.dumps({
-                "status": "info",
-                "message": "Already verified"
-            })
-        }
-
-    except Exception as e:
-        return {
-            "statusCode": 500,
-            "body": json.dumps({
-                "status": "error",
-                "message": str(e)
-            })
-        }
+    return {"status": "verified", "fp": fp}
