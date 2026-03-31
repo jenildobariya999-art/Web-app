@@ -1,160 +1,58 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <title>Device Verification</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
 
-  <style>
-    body {
-      margin: 0;
-      font-family: Arial;
-      background: linear-gradient(180deg, #0c0f2c, #1a1f4c);
-      color: white;
-      text-align: center;
-    }
-
-    .container {
-      padding: 20px;
-      margin-top: 40px;
-    }
-
-    .card {
-      background: rgba(255,255,255,0.05);
-      padding: 20px;
-      border-radius: 20px;
-      box-shadow: 0 0 30px rgba(0,0,0,0.5);
-    }
-
-    .title {
-      font-size: 28px;
-      color: #8b5cf6;
-      margin-top: 20px;
-    }
-
-    .scan-circle {
-      width: 120px;
-      height: 120px;
-      border-radius: 50%;
-      border: 4px solid #8b5cf6;
-      margin: auto;
-      position: relative;
-      animation: spin 2s linear infinite;
-    }
-
-    @keyframes spin {
-      0% { transform: rotate(0deg);}
-      100% { transform: rotate(360deg);}
-    }
-
-    .progress-bar {
-      height: 8px;
-      background: #333;
-      border-radius: 10px;
-      margin-top: 20px;
-      overflow: hidden;
-    }
-
-    .progress {
-      height: 100%;
-      width: 0%;
-      background: linear-gradient(90deg,#8b5cf6,#22c55e);
-      transition: 0.3s;
-    }
-
-    .status {
-      margin-top: 15px;
-      color: #aaa;
-    }
-
-    .success {
-      color: #22c55e;
-      font-weight: bold;
-    }
-
-    .fail {
-      color: red;
-      font-weight: bold;
-    }
-
-    button {
-      margin-top: 20px;
-      padding: 12px 20px;
-      border: none;
-      border-radius: 10px;
-      background: #22c55e;
-      color: black;
-      font-weight: bold;
-    }
-  </style>
-</head>
-
-<body>
-
-<div class="container">
-  <div class="card">
-
-    <div class="scan-circle"></div>
-
-    <div class="title">Device Verification</div>
-    <div class="status" id="status">Scanning your device...</div>
-
-    <div class="progress-bar">
-      <div class="progress" id="progress"></div>
-    </div>
-
-    <button onclick="goBack()">Back To Bot</button>
-
-  </div>
-</div>
+<h2 id="status">Scanning...</h2>
 
 <script>
-let progress = 0;
-let bar = document.getElementById("progress");
-let status = document.getElementById("status");
+const tg = window.Telegram.WebApp;
+tg.expand();
 
-// 👉 fingerprint generate
+// 👉 CHANGE HERE (BOT LINK)
+function goBack(){
+  window.location.href = "https://t.me/YOUR_BOT_USERNAME";
+}
+
+// 👉 fingerprint
 async function getFingerprint() {
-  const data = navigator.userAgent + screen.width + screen.height + new Date().getTimezoneOffset();
+  const data = navigator.userAgent + screen.width + screen.height;
   return btoa(data);
 }
 
-// 👉 send to backend
+// 👉 GET URL PARAM
+function getParam(name){
+  const url = new URL(window.location.href);
+  return url.searchParams.get(name);
+}
+
 async function verify() {
   const fp = await getFingerprint();
+
+  const user = tg.initDataUnsafe.user;
+  const ref = getParam("ref");
 
   const res = await fetch("/verify", {
     method: "POST",
     headers: {"Content-Type": "application/json"},
-    body: JSON.stringify({fingerprint: fp})
+    body: JSON.stringify({
+      fingerprint: fp,
+      user_id: user.id,
+      ref: ref
+    })
   });
 
   const result = await res.json();
 
   if (result.status === "ok") {
-    status.innerHTML = "✅ Verification Successful";
-    status.className = "status success";
+    document.getElementById("status").innerHTML = "✅ Verified";
+    tg.sendData("verified");
+
+  } else if (result.status === "blocked") {
+    document.getElementById("status").innerHTML = "🚫 Already Used Device";
+
   } else {
-    status.innerHTML = "❌ Verification Failed";
-    status.className = "status fail";
+    document.getElementById("status").innerHTML = "❌ Failed";
   }
 }
 
-// 👉 fake loading animation
-let interval = setInterval(() => {
-  progress += 10;
-  bar.style.width = progress + "%";
-
-  if (progress >= 100) {
-    clearInterval(interval);
-    verify();
-  }
-}, 300);
-
-function goBack(){
-  window.location.href = "https://t.me/YOUR_BOT_USERNAME";
-}
+// auto run
+setTimeout(verify, 2000);
 </script>
-
-</body>
-</html>
