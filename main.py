@@ -1,87 +1,54 @@
 from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse
-import redis
-import os
 import hashlib
-import urllib.parse
+import redis
 
 app = FastAPI()
 
-r = redis.from_url(os.getenv("REDIS_URL"), decode_responses=True)
+# 🔴 CHANGE HERE (Redis URL)
+r = redis.Redis.from_url(
+    "redis://default:gQAAAAAAAVxuAAIncDIwZWZkNjIwN2QyOTU0YTQ1YWZmMGE5NmE0OWJlMTBmYXAyODkxOTg@climbing-lizard-89198.upstash.io:6379",
+    decode_responses=True
+)
 
-# 🔥 FRONTEND PAGE
-@app.get("/", response_class=HTMLResponse)
-def home(request: Request):
-    query = dict(request.query_params)
-    uid = query.get("uid", "")
-    ref = query.get("ref", "")
+def hash_fp(fp):
+    return hashlib.sha256(fp.encode()).hexdigest()
 
-    return f"""
-    <html>
-    <body>
-    <h2>Verifying...</h2>
+@app.get("/")
+def home():
+    return {"status": "ok"}
 
-    <script>
-    function getCanvas() {{
-        const c = document.createElement("canvas");
-        const ctx = c.getContext("2d");
-        ctx.fillText("fp", 10, 10);
-        return c.toDataURL();
-    }}
-
-    async function verify() {{
-        const res = await fetch("/verify", {{
-            method: "POST",
-            headers: {{ "Content-Type": "application/json" }},
-            body: JSON.stringify({{
-                uid: "{uid}",
-                ref: "{ref}",
-                canvas: getCanvas()
-            }})
-        }});
-
-        const data = await res.json();
-        document.body.innerHTML = "<h2>" + JSON.stringify(data) + "</h2>";
-    }}
-
-    verify();
-    </script>
-    </body>
-    </html>
-    """
-
-# 🔥 VERIFY API
 @app.post("/verify")
-async def verify(request: Request):
-    data = await request.json()
+async def verify(req: Request):
+    data = await req.json()
 
-    uid = data.get("uid")
-    ref = data.get("ref")
-    canvas = data.get("canvas", "")
+    fingerprint = data.get("fingerprint")
+    user_id = str(data.get("user_id"))
+    ref = str(data.get("ref"))
 
-    ip = request.client.host
-    ua = request.headers.get("user-agent", "")
+    ip = req.headers.get("x-forwarded-for", req.client.host)
 
-    raw = ip + ua + canvas
-    fp = hashlib.sha256(raw.encode()).hexdigest()
+    if not fingerprint or not user_id:
+        return {"status": "fail"}
 
-    # ❌ Same device block
-    if r.get(f"fp:{fp}"):
-        return {"status": "blocked", "reason": "device used"}
+    fp_hash = hash_fp(fingerprint)
 
-    # ❌ Already verified user
-    if r.get(f"user:{uid}"):
-        return {"status": "already verified"}
+    # 🚫 already used device
+    if r.get(f"device:{fp_hash}"):
+        return {"status": "blocked"}
 
-    # ✅ Save fingerprint
-    r.set(f"fp:{fp}", uid)
+    # ✅ save device
+    r.set(f"device:{fp_hash}", user_id)
 
-    # ✅ Save user
-    r.set(f"user:{uid}", fp)
+    # ✅ mark verified
+    r.set(f"user:{user_id}", "verified")
 
-    # 🎯 Referral system
-    if ref and ref != uid:
-        if r.get(f"user:{ref}"):
-            r.incr(f"ref_count:{ref}")
+    # 💰 REFER SYSTEM (1 device = 1 refer only)
+    if ref and ref != user_id:
+        if not r.get(f"ref_used:{fp_hash}"):
+            r.set(f"ref_used:{fp_hash}", "yes")
 
-    return {"status": "verified"}
+            # increase ref user balance
+            bal = int(r.get(f"bal:{ref}") or 0)
+            r.set(f"bal:{ref}", bal + 10)
+
+    return {"status": "ok"}
