@@ -1,3 +1,4 @@
+
 from fastapi import FastAPI, Request
 import redis
 import os
@@ -5,7 +6,6 @@ import hashlib
 
 app = FastAPI()
 
-# Redis connect
 REDIS_URL = os.getenv("REDIS_URL")
 r = redis.from_url(REDIS_URL, decode_responses=True)
 
@@ -22,12 +22,15 @@ async def verify(request: Request):
     canvas = data.get("canvas", "")
     audio = data.get("audio", "")
 
+    # 🔥 Unique fingerprint
     raw = ip + ua + canvas + audio
     fp = hashlib.sha256(raw.encode()).hexdigest()
 
+    # 🔥 Check duplicate
     if r.get(fp):
-        return {"status": "blocked"}
+        return {"status": "blocked", "reason": "device already used"}
 
+    # 🔥 Save
     r.set(fp, "1")
 
-    return {"status": "verified", "fp": fp}
+    return {"status": "verified", "fingerprint": fp}
