@@ -3,12 +3,73 @@ import json
 import redis
 import hashlib
 
-# 🔴 Redis (PASTE YOUR URL HERE)
+# 🔴 Redis (YOUR REAL URL)
 r = redis.Redis.from_url("redis://default:gQAAAAAAAVxuAAIncDIwZWZkNjIwN2QyOTU0YTQ1YWZmMGE5NmE0OWJlMTBmYXAyODkxOTg@climbing-lizard-89198.upstash.io:6379")
+
+HTML_PAGE = """
+<!DOCTYPE html>
+<html>
+<head>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Verification</title>
+<style>
+body {
+    margin:0;
+    background: linear-gradient(135deg,#0f2027,#203a43,#2c5364);
+    font-family:sans-serif;
+    color:white;
+    display:flex;
+    justify-content:center;
+    align-items:center;
+    height:100vh;
+}
+.box {
+    background: rgba(255,255,255,0.1);
+    backdrop-filter: blur(15px);
+    padding:30px;
+    border-radius:15px;
+    text-align:center;
+}
+</style>
+</head>
+<body>
+
+<div class="box">
+    <h2>🔐 Device Verification</h2>
+    <p id="status">Checking...</p>
+</div>
+
+<script>
+const urlParams = new URLSearchParams(window.location.search);
+const uid = urlParams.get("uid");
+
+fetch("/api/verify?uid=" + uid)
+.then(res => res.json())
+.then(data => {
+    if(data.status === "success"){
+        document.getElementById("status").innerText = "✅ Verified";
+
+        setTimeout(()=>{
+            window.location.href = "https://t.me/Agenthuu_bot?start=verify_done";
+        },1500);
+
+    } else {
+        document.getElementById("status").innerText = data.message;
+    }
+})
+.catch(()=>{
+    document.getElementById("status").innerText = "❌ Network Error";
+});
+</script>
+
+</body>
+</html>
+"""
 
 class handler(BaseHTTPRequestHandler):
     def do_GET(self):
 
+        # ✅ API ROUTE
         if self.path.startswith("/api/verify"):
 
             try:
@@ -21,7 +82,7 @@ class handler(BaseHTTPRequestHandler):
             # 🌍 Real IP
             ip = self.headers.get("x-forwarded-for", self.client_address[0])
 
-            # 📱 Device (User-Agent)
+            # 📱 Device
             ua = self.headers.get("User-Agent", "")
 
             # 🔐 Fingerprint
@@ -30,7 +91,7 @@ class handler(BaseHTTPRequestHandler):
 
             key = f"device:{fingerprint}"
 
-            # ❌ Already used device
+            # ❌ Already used
             if r.exists(key):
 
                 self.send_response(200)
@@ -43,7 +104,7 @@ class handler(BaseHTTPRequestHandler):
                 }).encode())
                 return
 
-            # ✅ Save device
+            # ✅ Save
             r.set(key, uid)
 
             self.send_response(200)
@@ -52,13 +113,12 @@ class handler(BaseHTTPRequestHandler):
 
             self.wfile.write(json.dumps({
                 "status": "success",
-                "message": "✅ Verification successful",
-                "uid": uid
+                "message": "✅ Verified"
             }).encode())
-
             return
 
-        # Default route
+        # ✅ UI PAGE (FIX FOR "OK" ISSUE)
         self.send_response(200)
+        self.send_header("Content-Type", "text/html")
         self.end_headers()
-        self.wfile.write(b"OK")
+        self.wfile.write(HTML_PAGE.encode())
