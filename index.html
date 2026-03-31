@@ -3,123 +3,153 @@
 <head>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Verification</title>
-
 <style>
 body{
-background:#0a0a23;
+margin:0;
+font-family:Arial;
+background:radial-gradient(circle at top,#181846,#000);
 color:white;
-font-family:sans-serif;
 display:flex;
 justify-content:center;
 align-items:center;
 height:100vh;
 }
-
 .card{
-background:#111;
-padding:30px;
-border-radius:20px;
-text-align:center;
 width:90%;
 max-width:400px;
-box-shadow:0 0 20px rgba(0,0,0,0.6);
+background:rgba(255,255,255,.05);
+padding:28px;
+border-radius:24px;
+text-align:center;
+box-shadow:0 0 30px rgba(0,0,0,.6);
 }
-
 .circle{
-width:120px;
-height:120px;
+width:110px;
+height:110px;
 border-radius:50%;
 margin:auto;
 display:flex;
 align-items:center;
 justify-content:center;
-font-size:40px;
+font-size:42px;
 border:4px solid #6c63ff;
 animation:spin 2s linear infinite;
 }
-
 @keyframes spin{
-100%{transform:rotate(360deg);}
+100%{transform:rotate(360deg)}
 }
-
-.success{border-color:#00ff9d;color:#00ff9d;}
-.fail{border-color:red;color:red;}
-
+.hidden{display:none}
+.ok{border-color:#00ff9d;color:#00ff9d}
+.bad{border-color:#ff4d4d;color:#ff4d4d}
 button{
-margin-top:20px;
-padding:12px;
+margin-top:18px;
 width:100%;
+padding:12px;
 border:none;
-border-radius:10px;
+border-radius:12px;
 font-size:16px;
+font-weight:bold;
+background:#00ff9d;
 }
-
 </style>
 </head>
-
 <body>
-
 <div class="card">
 
 <div id="scan">
 <div class="circle">🔄</div>
-<h2>Scanning Device...</h2>
+<h2>Verifying Device</h2>
+<p>Please wait...</p>
 </div>
 
-<div id="success" style="display:none">
-<div class="circle success">✔</div>
-<h2>Verified Successfully</h2>
-<button onclick="goBot()">Continue</button>
+<div id="success" class="hidden">
+<div class="circle ok">✔</div>
+<h2>Verification Complete</h2>
+<p>You can continue to the bot now.</p>
+<button onclick="backBot()">Continue</button>
 </div>
 
-<div id="fail" style="display:none">
-<div class="circle fail">⚠</div>
-<h2 id="failText">Failed</h2>
-<button onclick="goBot()">Back</button>
+<div id="fail" class="hidden">
+<div class="circle bad">⚠</div>
+<h2>Verification Failed</h2>
+<p id="reason">Unknown Error</p>
+<button onclick="backBot()">Back To Bot</button>
 </div>
 
 </div>
 
 <script>
+const params = new URLSearchParams(location.search);
+const uid = params.get("uid") || "";
+const ref = params.get("ref") || "";
 
-const urlParams = new URLSearchParams(window.location.search);
-const user = urlParams.get("id");
+function canvasFingerprint(){
+  const canvas = document.createElement('canvas');
+  const ctx = canvas.getContext('2d');
+  ctx.textBaseline = 'top';
+  ctx.font = '16px Arial';
+  ctx.fillText('VerifyDevice123', 10, 10);
+  return canvas.toDataURL();
+}
 
-const fp = navigator.userAgent + navigator.platform + screen.width + screen.height;
+function audioFingerprint(){
+  return navigator.hardwareConcurrency + '-' + navigator.deviceMemory;
+}
 
-setTimeout(async ()=>{
+const fingerprint = [
+  navigator.userAgent,
+  navigator.platform,
+  screen.width + 'x' + screen.height,
+  Intl.DateTimeFormat().resolvedOptions().timeZone,
+  canvasFingerprint(),
+  audioFingerprint()
+].join('|');
 
-try{
+const telegram = navigator.userAgent.includes('Telegram');
 
-const res = await fetch("/verify", {
-method:"POST",
-headers:{'Content-Type':'application/json'},
-body: JSON.stringify({fp:fp,user:user})
+fetch('https://ipapi.co/json/')
+.then(r => r.json())
+.then(async ipdata => {
+
+  const vpn = (
+    ipdata.proxy === true ||
+    ipdata.security === true ||
+    ipdata.org?.toLowerCase().includes('vpn')
+  );
+
+  const res = await fetch('/verify', {
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({
+      uid,
+      ref,
+      ip: ipdata.ip,
+      vpn,
+      telegram,
+      fingerprint
+    })
+  });
+
+  const data = await res.json();
+
+  document.getElementById('scan').classList.add('hidden');
+
+  if(data.status === 'success'){
+    document.getElementById('success').classList.remove('hidden');
+  }else{
+    document.getElementById('fail').classList.remove('hidden');
+    document.getElementById('reason').innerText = data.message;
+  }
+
+}).catch(() => {
+  document.getElementById('scan').classList.add('hidden');
+  document.getElementById('fail').classList.remove('hidden');
+  document.getElementById('reason').innerText = 'Network error';
 });
 
-const data = await res.json();
-
-document.getElementById("scan").style.display="none";
-
-if(data.status=="success"){
-document.getElementById("success").style.display="block";
-}else{
-document.getElementById("fail").style.display="block";
-document.getElementById("failText").innerText=data.message;
+function backBot(){
+  location.href = 'https://t.me/YOUR_BOT_USERNAME';
 }
-
-}catch{
-document.getElementById("scan").style.display="none";
-document.getElementById("fail").style.display="block";
-}
-
-},2000);
-
-function goBot(){
-window.location.href="https://t.me/YOUR_BOT";
-}
-
 </script>
-
 </body>
 </html>
