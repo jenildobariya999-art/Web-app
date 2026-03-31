@@ -8,16 +8,35 @@
 
   <!-- Fingerprint -->
   <script src="https://openfpcdn.io/fingerprintjs/v3"></script>
+
+  <style>
+    body {
+      background: #0f172a;
+      color: white;
+      text-align: center;
+      padding-top: 120px;
+      font-family: Arial;
+    }
+    .box {
+      background: #1e293b;
+      padding: 30px;
+      border-radius: 15px;
+      width: 80%;
+      margin: auto;
+    }
+  </style>
 </head>
 
-<body style="background:#0f172a;color:white;text-align:center;padding-top:100px">
+<body>
 
-<h2 id="status">🔐 Verifying...</h2>
+<div class="box">
+  <h2 id="status">🔐 Verifying Device...</h2>
+</div>
 
 <script>
 const tg = window.Telegram.WebApp;
 
-// ❌ Block outside Telegram
+// ❌ Not inside Telegram
 if (!tg.initDataUnsafe || !tg.initDataUnsafe.user) {
   document.getElementById("status").innerText = "❌ Open inside Telegram";
   throw new Error("Not Telegram");
@@ -36,16 +55,17 @@ async function getIP() {
   }
 }
 
-// ===== MAIN VERIFY =====
+// ===== VERIFY =====
 FingerprintJS.load().then(async fp => {
 
   const result = await fp.get();
   const fingerprint = result.visitorId;
   const ip = await getIP();
+  const ua = navigator.userAgent;
 
   try {
 
-    const res = await fetch("/api/verify", {
+    const res = await fetch("/", {
       method: "POST",
       headers: {
         "Content-Type": "application/json"
@@ -53,7 +73,8 @@ FingerprintJS.load().then(async fp => {
       body: JSON.stringify({
         user_id: user_id,
         fingerprint: fingerprint,
-        ip: ip
+        ip: ip,
+        user_agent: ua
       })
     });
 
@@ -69,7 +90,7 @@ FingerprintJS.load().then(async fp => {
       document.getElementById("status").innerText = "🚫 Verification Failed";
     }
 
-  } catch (e) {
+  } catch {
     document.getElementById("status").innerText = "⚠️ Network Error";
   }
 
