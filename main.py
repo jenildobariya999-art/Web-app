@@ -2,21 +2,22 @@ import json
 import os
 import redis
 
-# ===== REDIS CONNECT =====
+# ===== REDIS =====
 REDIS_URL = os.getenv("REDIS_URL")
 
 if not REDIS_URL:
-    raise Exception("REDIS_URL not set")
+    raise Exception("REDIS_URL missing")
 
 r = redis.from_url(REDIS_URL, decode_responses=True)
 
-# ===== MAIN HANDLER =====
+# ===== HANDLER =====
 def handler(request):
 
+    # Allow only POST
     if request.method != "POST":
         return {
-            "statusCode": 405,
-            "body": json.dumps({"error": "Method not allowed"})
+            "statusCode": 200,
+            "body": json.dumps({"message": "API Working"})
         }
 
     try:
@@ -25,6 +26,7 @@ def handler(request):
         user_id = str(body.get("user_id"))
         fingerprint = body.get("fingerprint")
         ip = body.get("ip")
+        ua = body.get("user_agent")
 
         if not user_id or not fingerprint:
             return {
@@ -32,18 +34,19 @@ def handler(request):
                 "body": json.dumps({
                     "status": "error",
                     "title": "Invalid Request",
-                    "message": "Missing data"
+                    "message": "Missing user data"
                 })
             }
 
         key = f"user:{user_id}"
-        saved_data = r.get(key)
+        saved = r.get(key)
 
         # ===== FIRST TIME =====
-        if not saved_data:
+        if not saved:
             r.set(key, json.dumps({
                 "fingerprint": fingerprint,
-                "ip": ip
+                "ip": ip,
+                "ua": ua
             }))
 
             return {
@@ -51,30 +54,30 @@ def handler(request):
                 "body": json.dumps({
                     "status": "success",
                     "title": "Verified Successfully",
-                    "message": "Device linked successfully"
+                    "message": "Device registered"
                 })
             }
 
-        saved = json.loads(saved_data)
+        saved_data = json.loads(saved)
 
-        # ===== DEVICE MISMATCH =====
-        if saved["fingerprint"] != fingerprint:
+        # ===== DEVICE CHECK =====
+        if saved_data["fingerprint"] != fingerprint:
             return {
                 "statusCode": 200,
                 "body": json.dumps({
                     "status": "error",
                     "title": "Multiple Devices Detected",
-                    "message": "Access denied (device mismatch)"
+                    "message": "Access denied"
                 })
             }
 
-        # ===== SAME USER =====
+        # ===== SUCCESS AGAIN =====
         return {
             "statusCode": 200,
             "body": json.dumps({
                 "status": "info",
                 "title": "Already Verified",
-                "message": "You are already verified"
+                "message": "Welcome back"
             })
         }
 
