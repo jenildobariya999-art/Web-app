@@ -1,38 +1,34 @@
 from fastapi import FastAPI, Request
-import httpx
 import hashlib
+import requests
 
 app = FastAPI()
 
-BOT_TOKEN = "8464660617:AAE5sUjb_Y-buaAri4UYIiwoIg1eyk4xQuY"
-TELEGRAM_API = f"https://api.telegram.org/bot{BOT_TOKEN}"
+BOT_TOKEN = "8645066724:AAFwkbpnQDmpAjEf-lf-3nraM-A72Q9pd8Q"
+BOT_API = f"https://api.telegram.org/bot{BOT_TOKEN}"
 
-# In production, use database
-verified_devices = set()  # store fingerprint hashes
+# Store verified fingerprints (use DB in real)
+verified = {}
 
 @app.post("/verify")
-async def verify(request: Request):
-    data = await request.json()
-    fingerprint = data.get("fingerprint")
-    if not fingerprint:
-        return {"status":"error","message":"Fingerprint missing"}
+async def verify(req: Request):
+    data = await req.json()
 
-    # Compute fingerprint hash
-    fp_hash = hashlib.sha256(fingerprint.encode()).hexdigest()
+    fingerprint = data.get("fp")
+    user_id = data.get("user")
 
-    # Check if already verified
-    if fp_hash in verified_devices:
-        return {"status":"error","message":"Device already verified"}
+    if not fingerprint or not user_id:
+        return {"status":"error","message":"Invalid request"}
 
-    verified_devices.add(fp_hash)
+    hash_fp = hashlib.sha256(fingerprint.encode()).hexdigest()
 
-    # Trigger /verified on bot
-    try:
-        # Replace <chat_id> with actual chat_id logic if needed
-        # For device-only verification without user_id, you can store chat_id mapping on first click
-        url = f"{TELEGRAM_API}/sendMessage?chat_id=<CHAT_ID>&text=/verified"
-        httpx.get(url)
-    except Exception as e:
-        return {"status":"error","message":str(e)}
+    # Check duplicate device
+    if hash_fp in verified:
+        return {"status":"error","message":"Multiple devices detected"}
 
-    return {"status":"success","message":"✅ Device Verified Successfully!"}
+    verified[hash_fp] = user_id
+
+    # Send verified command to bot
+    requests.get(f"{BOT_API}/sendMessage?chat_id={user_id}&text=/verified")
+
+    return {"status":"success","message":"Verified Successfully"}
