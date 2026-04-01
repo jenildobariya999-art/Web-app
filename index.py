@@ -1,44 +1,43 @@
-import json
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
 import hashlib
 
-def handler(request):
+app = FastAPI()
+
+# simple memory (vercel reset hota hai, but test ke liye ok)
+users = {}
+
+def generate_fingerprint(ip, ua):
+    return hashlib.sha256(f"{ip}-{ua}".encode()).hexdigest()
+
+@app.get("/api/verify")
+async def verify(request: Request):
     try:
-        if request.method == "OPTIONS":
-            return {
-                "statusCode": 200,
-                "headers": {
-                    "Access-Control-Allow-Origin": "*",
-                    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-                    "Access-Control-Allow-Headers": "Content-Type"
-                },
-                "body": ""
-            }
+        ip = request.client.host
+        ua = request.headers.get("user-agent")
 
-        params = request.get("query", {})
-        uid = params.get("uid", "unknown")
+        uid = request.query_params.get("uid")
 
-        ip = request.headers.get("x-forwarded-for", "0.0.0.0")
-        ua = request.headers.get("user-agent", "unknown")
+        if not uid:
+            return JSONResponse({"status": "error", "message": "No UID"})
 
-        fingerprint = hashlib.md5((ip + ua).encode()).hexdigest()
+        fingerprint = generate_fingerprint(ip, ua)
 
-        return {
-            "statusCode": 200,
-            "headers": {"Access-Control-Allow-Origin": "*"},
-            "body": json.dumps({
-                "status": "success",
-                "message": "Device Verified ✅",
-                "uid": uid,
-                "fingerprint": fingerprint
+        if fingerprint in users:
+            return JSONResponse({
+                "status": "error",
+                "message": "Already used device"
             })
-        }
+
+        users[fingerprint] = uid
+
+        return JSONResponse({
+            "status": "success",
+            "message": "Device verified successfully"
+        })
 
     except Exception as e:
-        return {
-            "statusCode": 500,
-            "headers": {"Access-Control-Allow-Origin": "*"},
-            "body": json.dumps({
-                "status": "error",
-                "message": str(e)
-            })
-        }
+        return JSONResponse({
+            "status": "error",
+            "message": str(e)
+        })
