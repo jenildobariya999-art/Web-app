@@ -55,7 +55,7 @@ def handler(request):
 
         if(d.status === "success"){
             setTimeout(()=>{
-                window.location.href = "https://t.me/TestingWithAll?start=verify_done";
+                window.location.href = "https://t.me/TestingWithAll_bot?start=verify_done";
             },1500);
         }
     })
