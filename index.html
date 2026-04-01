@@ -1,56 +1,24 @@
 <!DOCTYPE html>
 <html>
 <head>
-<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Verification</title>
-
-<style>
-body {
-  background: #0f172a;
-  color: white;
-  font-family: sans-serif;
-  text-align: center;
-  padding-top: 100px;
-}
-
-.box {
-  background: rgba(255,255,255,0.1);
-  padding: 30px;
-  border-radius: 20px;
-  backdrop-filter: blur(10px);
-}
-</style>
-
 </head>
+<body style="background:black;color:white;text-align:center">
 
-<body>
-
-<div class="box">
-<h2>🔐 Device Verification</h2>
-<p id="status">Checking...</p>
-</div>
+<h2>🔐 Verifying Device...</h2>
 
 <script>
-async function verify() {
-    try {
-        let res = await fetch("/api/verify");
-        let data = await res.json();
+const params = new URLSearchParams(window.location.search);
+const uid = params.get("uid");
 
-        document.getElementById("status").innerHTML =
-            "✅ " + data.message;
-
-        // 🔥 AUTO SEND TO TELEGRAM
-        if (window.Telegram && Telegram.WebApp) {
-            Telegram.WebApp.sendData(JSON.stringify(data));
-        }
-
-    } catch (e) {
-        document.getElementById("status").innerHTML =
-            "❌ Network Error";
-    }
-}
-
-verify();
+fetch(`/api/verify?uid=${uid}`)
+.then(res => res.json())
+.then(data => {
+    document.body.innerHTML = `<h2>${data.message}</h2>`;
+})
+.catch(() => {
+    document.body.innerHTML = "<h2>Network Error ❌</h2>";
+});
 </script>
 
 </body>
