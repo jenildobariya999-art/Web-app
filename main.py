@@ -1,89 +1,85 @@
 from http.server import BaseHTTPRequestHandler
-import json
-import redis
-import hashlib
+import json, redis, hashlib
 
 r = redis.Redis.from_url("redis://default:gQAAAAAAAVxuAAIncDIwZWZkNjIwN2QyOTU0YTQ1YWZmMGE5NmE0OWJlMTBmYXAyODkxOTg@climbing-lizard-89198.upstash.io:6379")
 
-HTML_PAGE = """
+HTML = """
 <!DOCTYPE html>
 <html>
 <head>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<script src="https://telegram.org/js/telegram-web-app.js"></script>
-<title>Verification</title>
-
+<title>Secure Verify</title>
 <style>
-body {
-    margin:0;
-    background: linear-gradient(135deg,#0f2027,#203a43,#2c5364);
-    font-family:sans-serif;
-    color:white;
-    display:flex;
-    justify-content:center;
-    align-items:center;
-    height:100vh;
-}
-.box {
-    background: rgba(255,255,255,0.1);
-    backdrop-filter: blur(15px);
-    padding:30px;
-    border-radius:15px;
-    text-align:center;
-}
+body{margin:0;background:#0f2027;color:#fff;display:flex;justify-content:center;align-items:center;height:100vh;font-family:sans-serif}
+.box{background:rgba(255,255,255,0.1);padding:25px;border-radius:15px;text-align:center}
 </style>
 </head>
-
 <body>
 
 <div class="box">
-    <h2>🔐 Secure Verification</h2>
-    <p id="status">Scanning device...</p>
+<h2>🔐 Ultra Verification</h2>
+<p id="s">Scanning...</p>
 </div>
 
 <script>
 
-// 🔐 Canvas Fingerprint
-function getCanvasFingerprint() {
-    let canvas = document.createElement("canvas");
-    let ctx = canvas.getContext("2d");
-    ctx.textBaseline = "top";
-    ctx.font = "14px Arial";
-    ctx.fillText("fingerprint", 2, 2);
-    return canvas.toDataURL();
+// 🎨 Canvas
+function canvasFP(){
+ let c=document.createElement("canvas");
+ let x=c.getContext("2d");
+ x.fillText("secure",2,2);
+ return c.toDataURL();
 }
 
-const urlParams = new URLSearchParams(window.location.search);
-const uid = urlParams.get("uid");
+// 🧠 WebGL
+function webglFP(){
+ try{
+   let c=document.createElement("canvas");
+   let gl=c.getContext("webgl");
+   let debug=gl.getExtension('WEBGL_debug_renderer_info');
+   return gl.getParameter(debug.UNMASKED_RENDERER_WEBGL);
+ }catch{return "no_webgl";}
+}
 
-const canvas_fp = getCanvasFingerprint();
+// 🔊 Audio
+async function audioFP(){
+ try{
+  let ctx=new AudioContext();
+  let osc=ctx.createOscillator();
+  let analyser=ctx.createAnalyser();
+  osc.connect(analyser);
+  analyser.connect(ctx.destination);
+  osc.start(0);
+  let data=new Float32Array(analyser.frequencyBinCount);
+  analyser.getFloatFrequencyData(data);
+  return data.slice(0,10).join(",");
+ }catch{return "no_audio";}
+}
 
-fetch("/api/verify?uid=" + uid + "&cfp=" + encodeURIComponent(canvas_fp))
-.then(res => res.json())
-.then(data => {
+(async ()=>{
+ const fp = {
+  canvas: canvasFP(),
+  webgl: webglFP(),
+  audio: await audioFP(),
+  screen: screen.width+"x"+screen.height,
+  tz: Intl.DateTimeFormat().resolvedOptions().timeZone,
+  ua: navigator.userAgent
+ };
 
-    if(data.status === "success"){
+ fetch("/api/verify",{
+   method:"POST",
+   headers:{"Content-Type":"application/json"},
+   body:JSON.stringify(fp)
+ })
+ .then(r=>r.json())
+ .then(d=>{
+   document.getElementById("s").innerText = d.message;
+ })
+ .catch(()=>{
+   document.getElementById("s").innerText = "❌ Network Error";
+ });
 
-        document.getElementById("status").innerText = "✅ Verified";
-
-        // 🚀 AUTO TELEGRAM RETURN (BEST POSSIBLE)
-        if(window.Telegram.WebApp){
-            Telegram.WebApp.close();
-        }
-
-        setTimeout(()=>{
-            window.location.href = "https://t.me/YOUR_BOT?start=verify_done";
-        },1000);
-
-    } else {
-        document.getElementById("status").innerText = data.message;
-    }
-
-})
-.catch(()=>{
-    document.getElementById("status").innerText = "❌ Network Error";
-});
-
+})();
 </script>
 
 </body>
@@ -91,75 +87,52 @@ fetch("/api/verify?uid=" + uid + "&cfp=" + encodeURIComponent(canvas_fp))
 """
 
 class handler(BaseHTTPRequestHandler):
-    def do_GET(self):
 
-        # 🔐 VERIFY API
-        if self.path.startswith("/api/verify"):
+    def do_POST(self):
+
+        if self.path == "/api/verify":
+
+            length = int(self.headers.get('Content-Length',0))
+            data = self.rfile.read(length)
 
             try:
-                query = self.path.split("?")[-1]
-                params = dict(x.split("=") for x in query.split("&"))
-
-                uid = params.get("uid", "")
-                canvas_fp = params.get("cfp", "")
-
+                body = json.loads(data)
             except:
-                uid = ""
-                canvas_fp = ""
+                body = {}
 
-            # 🌍 Real IP
             ip = self.headers.get("x-forwarded-for", self.client_address[0])
+            ua = self.headers.get("User-Agent","")
 
-            # 📱 Device
-            ua = self.headers.get("User-Agent", "")
-
-            # 🚫 VPN / Proxy detect (basic)
-            suspicious = ["vpn", "proxy", "tor"]
-            ua_lower = ua.lower()
-
-            for s in suspicious:
-                if s in ua_lower:
-                    self.send_response(200)
-                    self.send_header("Content-Type", "application/json")
-                    self.end_headers()
-                    self.wfile.write(json.dumps({
-                        "status": "error",
-                        "message": "🚫 VPN/Proxy not allowed"
-                    }).encode())
-                    return
-
-            # 🔐 Strong fingerprint
-            raw = ip + ua + canvas_fp
-            fingerprint = hashlib.sha256(raw.encode()).hexdigest()
-
-            key = f"device:{fingerprint}"
-
-            # ❌ Already used
-            if r.exists(key):
-
-                self.send_response(200)
-                self.send_header("Content-Type", "application/json")
-                self.end_headers()
-                self.wfile.write(json.dumps({
-                    "status": "error",
-                    "message": "❌ Device already used"
-                }).encode())
+            # 🚫 VPN basic detect
+            if "vpn" in ua.lower() or "proxy" in ua.lower():
+                self.send( "🚫 VPN/Proxy detected", "error")
                 return
 
-            # ✅ Save
-            r.set(key, uid)
+            # 🔐 SUPER FINGERPRINT
+            raw = ip + ua + json.dumps(body)
+            fp = hashlib.sha256(raw.encode()).hexdigest()
 
-            self.send_response(200)
-            self.send_header("Content-Type", "application/json")
-            self.end_headers()
-            self.wfile.write(json.dumps({
-                "status": "success",
-                "message": "✅ Verified"
-            }).encode())
-            return
+            key = "dev:" + fp
 
-        # 🔥 UI SERVE
+            if r.exists(key):
+                self.send("❌ Already used device","error")
+                return
+
+            r.set(key,"1")
+
+            self.send("✅ Verified Successfully","success")
+
+    def do_GET(self):
         self.send_response(200)
-        self.send_header("Content-Type", "text/html")
+        self.send_header("Content-Type","text/html")
         self.end_headers()
-        self.wfile.write(HTML_PAGE.encode())
+        self.wfile.write(HTML.encode())
+
+    def send(self,msg,status):
+        self.send_response(200)
+        self.send_header("Content-Type","application/json")
+        self.end_headers()
+        self.wfile.write(json.dumps({
+            "status":status,
+            "message":msg
+        }).encode())
