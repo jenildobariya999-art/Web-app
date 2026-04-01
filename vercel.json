@@ -1,5 +1,11 @@
 {
+  "functions": {
+    "main.py": {
+      "runtime": "python3.9"
+    }
+  },
   "routes": [
+    { "src": "/api/verify", "dest": "main.py" },
     { "src": "/(.*)", "dest": "main.py" }
   ]
 }
