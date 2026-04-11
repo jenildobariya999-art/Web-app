@@ -1,13 +1,14 @@
 {
-  "functions": {
-    "api/*.py": {
-      "runtime": "vercel-python@0.0.0"
+  "builds": [
+    {
+      "src": "api/bot.py",
+      "use": "@vercel/python"
     }
-  },
+  ],
   "routes": [
     {
-      "src": "/(.*)",
-      "dest": "/api/bot.py"
+      "src": "/webhook",
+      "dest": "api/bot.py"
     }
   ]
 }
