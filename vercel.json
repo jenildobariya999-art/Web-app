@@ -1,7 +1,12 @@
 {
+  "functions": {
+    "api/*.py": {
+      "runtime": "python3.11"
+    }
+  },
   "routes": [
     {
-      "src": "/api/bot",
+      "src": "/webhook",
       "dest": "/api/bot.py"
     }
   ]
