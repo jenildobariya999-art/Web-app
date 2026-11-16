@@ -166,16 +166,55 @@ def _snake(name):
     return re.sub(r"(?<!^)(?=[A-Z])", "_", name).lower()
 
 
+def _fix_kw(kw):
+    """TPY lets reply_markup / link_preview_options be plain dicts - telebot needs json / objects."""
+    rm = kw.get("reply_markup")
+    if isinstance(rm, (dict, list)):
+        kw["reply_markup"] = json.dumps(rm, ensure_ascii=False)
+    lp = kw.get("link_preview_options")
+    if isinstance(lp, dict):
+        kw["link_preview_options"] = LinkPreviewOptions(**lp)
+    return kw
+
+
+class _Result:
+    """API result usable both as object (m.message_id) and as dict (m["message_id"]) like in TPY."""
+    def __init__(self, obj):
+        object.__setattr__(self, "_o", obj)
+
+    def __getattr__(self, k):
+        return getattr(self._o, k)
+
+    def __getitem__(self, k):
+        try:
+            return getattr(self._o, k)
+        except AttributeError:
+            raise KeyError(k)
+
+    def get(self, k, default=None):
+        return getattr(self._o, k, default)
+
+    def __contains__(self, k):
+        return hasattr(self._o, k)
+
+    def __repr__(self):
+        return repr(self._o)
+
+
+def _wrap(r):
+    return _Result(r) if hasattr(r, "json") and not isinstance(r, (dict, list, str, bytes)) else r
+
+
 class _TPYBot:
     """`bot.*`  (Telegram methods, camelCase like in TPY)."""
     def __init__(self, api):
         self._api = api
 
     def replyText(self, chat_id, text, **kw):
-        return self._api.send_message(chat_id, text, **kw)
+        return _wrap(self._api.send_message(chat_id, text, **_fix_kw(kw)))
 
     def sendMessage(self, text=None, chat_id=None, **kw):
-        return self._api.send_message(chat_id if chat_id is not None else u, text, **kw)
+        return _wrap(self._api.send_message(chat_id if chat_id is not None else u, text, **_fix_kw(kw)))
 
     def info(self, *a, **k):
         return Bot.info()
@@ -184,7 +223,10 @@ class _TPYBot:
         fn = getattr(self._api, _snake(name), None)
         if fn is None:
             raise AttributeError("bot.%s is not supported" % name)
-        return fn
+
+        def _call(*a, **kw):
+            return _wrap(fn(*a, **_fix_kw(kw)))
+        return _call
 
 
 bot = _TPYBot(_api)
@@ -342,10 +384,10 @@ class _TPYBotGlobal:
         print("[Bot.log]", *a)
 
     def replyText(self, chat_id, text, **kw):
-        return _api.send_message(chat_id, text, **kw)
+        return _wrap(_api.send_message(chat_id, text, **_fix_kw(kw)))
 
     def sendMessage(self, text=None, chat_id=None, **kw):
-        return _api.send_message(chat_id if chat_id is not None else u, text, **kw)
+        return _wrap(_api.send_message(chat_id if chat_id is not None else u, text, **_fix_kw(kw)))
 
     def genId(self):
         return "%x" % random.getrandbits(48)
@@ -392,7 +434,7 @@ class _TPYBotGlobal:
                     if str(fn).startswith("/") or _find(fn):
                         _run_for_user(uid, fn, options=kwargs)
                     else:
-                        getattr(_api, _snake(fn))(chat_id=uid, **kwargs)
+                        getattr(_api, _snake(fn))(chat_id=uid, **_fix_kw(dict(kwargs)))
                     st["total_success"] += 1
                 except Exception:
                     st["total_error"] += 1
