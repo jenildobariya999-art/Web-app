@@ -17823,6 +17823,7 @@ def _track_user(m):
 
 
 def _on_error(err_text, ctx):
+    print("COMMAND ERROR:\n" + err_text, flush=True)
     if _find("!"):
         try:
             _invoke("!", **dict(ctx, options=err_text))
@@ -17970,6 +17971,16 @@ def _keep_alive():
 def main():
     if "PUT_YOUR_BOT_TOKEN_HERE" in BOT_TOKEN:
         sys.exit("Set BOT_TOKEN first:  BOT_TOKEN=123:ABC python %s" % os.path.basename(__file__))
+    import logging
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+    telebot.logger.setLevel(logging.INFO)
+    # TBC had set a webhook on this token -> getUpdates gives "409 Conflict" until it is removed.
+    try:
+        _api.delete_webhook(drop_pending_updates=False)
+        me = _api.get_me()
+        print("Logged in as @%s (id %s)" % (me.username, me.id))
+    except Exception as e:
+        sys.exit("BOT_TOKEN invalid / Telegram not reachable: %s" % e)
     _api.message_handler(func=lambda m: True,
                          content_types=["text", "photo", "video", "audio", "document", "animation",
                                         "sticker", "voice", "video_note", "contact", "location",
