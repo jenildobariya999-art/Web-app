@@ -37,7 +37,13 @@ import atexit
 import random
 import threading
 import traceback
+import types
+import sqlite3
+import hmac
+import hashlib
+import platform
 import urllib.parse
+from collections import Counter, deque
 from datetime import datetime, timedelta, timezone
 
 import requests
@@ -60,6 +66,10 @@ WEBHOOK_BASE_URL = (os.environ.get("WEBHOOK_BASE_URL") or os.environ.get("RENDER
 KEEP_ALIVE = os.environ.get("KEEP_ALIVE", "1") != "0"
 PORT = int(os.environ.get("PORT", "8080"))
 bot_token = BOT_TOKEN
+OWNER_ID = os.environ.get("OWNER_ID", "").strip()          # your telegram id  -> always bot owner/admin
+ADMIN_IDS = [x.strip() for x in os.environ.get("ADMIN_IDS", "").replace(";", ",").split(",") if x.strip()]
+PANEL_KEY = os.environ.get("PANEL_KEY", "").strip()        # password of the web panel  (/panel)
+NUM_THREADS = int(os.environ.get("NUM_THREADS", "32"))     # parallel handlers
 
 
 # ==========================================================================
@@ -110,56 +120,92 @@ def apply_html_entities(text, entities=None, custom_subs=None):
 
 # ---------------------------------------------------------------- storage
 class _DB:
-    """Tiny JSON database replacing TBC cloud storage."""
+    """SQLite backed key/value store (replaces TBC cloud storage).
+    Everything is cached in RAM (fast reads); changes are written to disk in batches by a
+    background thread, so commands never wait for the disk."""
     def __init__(self, path):
+        if path.endswith(".json"):
+            path = path[:-5] + ".sqlite"
         self.path = path
         self.lock = threading.RLock()
-        self.dirty = False
-        self.d = {"bot": {}, "user": {}, "res": {}, "pending": {}, "users": []}
-        try:
-            with open(path, "r", encoding="utf-8") as f:
-                self.d.update(json.load(f))
-        except Exception:
-            pass
-        threading.Thread(target=self._saver, daemon=True).start()
-        atexit.register(self.save)
-
-    def touch(self):
-        self.dirty = True
-
-    def save(self):
-        with self.lock:
-            if not self.dirty:
-                return
-            tmp = self.path + ".tmp"
-            with open(tmp, "w", encoding="utf-8") as f:
-                json.dump(self.d, f, ensure_ascii=False, default=str)
-            os.replace(tmp, self.path)
-            self.dirty = False
-
-    def _saver(self):
-        while True:
-            time.sleep(2)
+        self.dirty = set()
+        self.d = {"bot": {}, "user": {}, "res": {}, "pending": {}, "users": {}, "profiles": {}}
+        os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
+        self.cn = sqlite3.connect(path, check_same_thread=False)
+        self.cn.execute("PRAGMA journal_mode=WAL")
+        self.cn.execute("PRAGMA synchronous=NORMAL")
+        self.cn.execute("CREATE TABLE IF NOT EXISTS kv(s TEXT, k TEXT, v TEXT, PRIMARY KEY(s,k))")
+        self.cn.commit()
+        for s, k, v in self.cn.execute("SELECT s,k,v FROM kv"):
             try:
-                self.save()
+                self.d.setdefault(s, {})[k] = json.loads(v)
             except Exception:
                 pass
+        threading.Thread(target=self._writer, daemon=True).start()
+        atexit.register(self.flush)
+
+    def mark(self, section, key):
+        self.dirty.add((section, str(key)))
+
+    touch = lambda self: None
+
+    def flush(self):
+        with self.lock:
+            items, self.dirty = list(self.dirty), set()
+            if not items:
+                return
+            for s, k in items:
+                sec = self.d.get(s, {})
+                if k in sec:
+                    self.cn.execute("INSERT OR REPLACE INTO kv(s,k,v) VALUES(?,?,?)",
+                                    (s, k, json.dumps(sec[k], ensure_ascii=False, default=str)))
+                else:
+                    self.cn.execute("DELETE FROM kv WHERE s=? AND k=?", (s, k))
+            self.cn.commit()
+
+    def _writer(self):
+        while True:
+            time.sleep(1)
+            try:
+                self.flush()
+            except Exception:
+                traceback.print_exc()
+
+    def size(self):
+        try:
+            return os.path.getsize(self.path)
+        except Exception:
+            return 0
 
 
 db = _DB(DB_FILE)
 
 
 def _plain(v):
-    """make a value json-safe (sets/tuples -> list) and detached from the original."""
+    """json-safe, detached copy (sets/tuples -> list)."""
+    if v is None or isinstance(v, (str, int, float, bool)):
+        return v
     return json.loads(json.dumps(v, default=lambda o: list(o) if isinstance(o, (set, tuple)) else str(o)))
 
 
+def _clone(v):
+    if v is None or isinstance(v, (str, int, float, bool)):
+        return v
+    return json.loads(json.dumps(v))
+
+
+def _c(name):
+    """value of a context variable (u, message, call ...) for the CURRENT thread/command."""
+    c = getattr(_tl, "ctx", None)
+    return c.get(name) if c else None
+
+
 def _uid(user=None):
-    return str(user if user is not None else u)
+    return str(user if user is not None else _c("u"))
 
 
 # ----------------------------------------------------------- Telegram api
-_api = telebot.TeleBot(BOT_TOKEN, parse_mode=None, threaded=True)
+_api = telebot.TeleBot(BOT_TOKEN, parse_mode=None, threaded=True, num_threads=NUM_THREADS)
 
 
 def _snake(name):
@@ -214,7 +260,7 @@ class _TPYBot:
         return _wrap(self._api.send_message(chat_id, text, **_fix_kw(kw)))
 
     def sendMessage(self, text=None, chat_id=None, **kw):
-        return _wrap(self._api.send_message(chat_id if chat_id is not None else u, text, **_fix_kw(kw)))
+        return _wrap(self._api.send_message(chat_id if chat_id is not None else _c("u"), text, **_fix_kw(kw)))
 
     def info(self, *a, **k):
         return Bot.info()
@@ -243,7 +289,10 @@ params = None       # text after the command   ( "/start 123" -> "123" )
 msg = None          # raw text of the message / button data
 update_type = "message"
 _CTX = ("u", "message", "call", "options", "params", "msg", "update_type")
-_ctx_lock = threading.RLock()
+_tl = threading.local()   # per-thread command context -> commands of different users run in parallel
+_G = globals()
+STATS = {"start": time.time(), "updates": 0, "runs": 0, "ms": 0.0, "cmds": Counter(),
+         "errors": deque(maxlen=60), "err_total": 0}
 COMMANDS = {}       # filled at the bottom of the file
 _LAST_MSG = {}      # last message per user (used for scheduled / webhook runs)
 _NOT_FOUND, _DONE, _RETURNED = 0, 1, 2
@@ -264,21 +313,29 @@ def _find(name):
 
 
 def _invoke(name, **ctx):
-    """Run one command function inside a (nested-safe) context."""
+    """Run one command function with its own private namespace (thread safe, nested safe)."""
     func = _find(name)
     if func is None:
         return _NOT_FOUND
-    with _ctx_lock:
-        g = globals()
-        snap = {k: g[k] for k in _CTX}
-        g.update(ctx)
-        try:
-            func()
-            return _DONE
-        except ReturnCommand:
-            return _RETURNED
-        finally:
-            g.update(snap)
+    prev = getattr(_tl, "ctx", None)
+    cur = dict(prev) if prev else dict.fromkeys(_CTX)
+    cur.update(ctx)
+    g = dict(_G)
+    g.update(cur)
+    f = types.FunctionType(func.__code__, g, func.__name__)
+    _tl.ctx = cur
+    t0 = time.time()
+    try:
+        f()
+        return _DONE
+    except ReturnCommand:
+        return _RETURNED
+    finally:
+        _tl.ctx = prev
+        if prev is None:
+            STATS["runs"] += 1
+            STATS["ms"] += (time.time() - t0) * 1000
+            STATS["cmds"][str(name)] += 1
 
 
 def _split_cmd(text):
@@ -302,13 +359,12 @@ class _TPYBotGlobal:
     """`Bot.*`  (bot-wide data, command control, broadcast)."""
     # -- data
     def getData(self, name, bot_id=None, api_key=None):
-        with db.lock:
-            return copy.deepcopy(db.d["bot"].get(name))
+        return _clone(db.d["bot"].get(name))
 
     def saveData(self, name, data, bot_id=None, api_key=None):
         with db.lock:
             db.d["bot"][name] = _plain(data)
-            db.touch()
+            db.mark("bot", name)
         return {"status": "success"}
 
     setData = saveData
@@ -316,14 +372,15 @@ class _TPYBotGlobal:
     def deleteData(self, name, bot_id=None):
         with db.lock:
             db.d["bot"].pop(name, None)
-            db.touch()
+            db.mark("bot", name)
         return {"status": "success"}
 
     def deleteAllData(self, except_data=None):
         with db.lock:
-            keep = {k: v for k, v in db.d["bot"].items() if k in (except_data or [])}
-            db.d["bot"] = keep
-            db.touch()
+            for k in list(db.d["bot"]):
+                if k not in (except_data or []):
+                    db.d["bot"].pop(k)
+                    db.mark("bot", k)
 
     # -- command control
     def runCommand(self, command, options=None):
@@ -337,7 +394,7 @@ class _TPYBotGlobal:
         with db.lock:
             db.d["pending"][_uid()] = {"cmd": command, "options": _plain(options),
                                        "cancel": bool(cancel_at_command)}
-            db.touch()
+            db.mark("pending", _uid())
         return {"status": "success"}
 
     _jobs = {}
@@ -346,7 +403,7 @@ class _TPYBotGlobal:
         if isinstance(timeout, datetime):
             timeout = max(1, (timeout - datetime.now(timeout.tzinfo)).total_seconds())
         timeout = max(1, float(timeout))
-        uid, m, c = u, message, call
+        uid, m, c = _c("u"), _c("message"), _c("call")
         job_id = "job%d" % random.randint(10 ** 8, 10 ** 9)
 
         def _run():
@@ -387,7 +444,7 @@ class _TPYBotGlobal:
         return _wrap(_api.send_message(chat_id, text, **_fix_kw(kw)))
 
     def sendMessage(self, text=None, chat_id=None, **kw):
-        return _wrap(_api.send_message(chat_id if chat_id is not None else u, text, **_fix_kw(kw)))
+        return _wrap(_api.send_message(chat_id if chat_id is not None else _c("u"), text, **_fix_kw(kw)))
 
     def genId(self):
         return "%x" % random.getrandbits(48)
@@ -402,14 +459,14 @@ class _TPYBotGlobal:
             b = db.d["bot"].setdefault("__blocked__", [])
             if str(user_id) not in b:
                 b.append(str(user_id))
-            db.touch()
+            db.mark("bot", "__blocked__")
 
     def unblockUser(self, user_id):
         with db.lock:
             b = db.d["bot"].setdefault("__blocked__", [])
             if str(user_id) in b:
                 b.remove(str(user_id))
-            db.touch()
+            db.mark("bot", "__blocked__")
 
     # -- broadcast (runs in a background thread)
     _bc = {}
@@ -420,7 +477,8 @@ class _TPYBotGlobal:
         if not fn:
             return {"status": "error", "message": "function is required"}
         bid = self.genId()
-        users = [str(x) for x in db.d.get("users", [])]
+        full = db.d["bot"].get("FulBotUsrs") or []
+        users = list(dict.fromkeys([str(x) for x in full if str(x).lstrip("-").isdigit()] + list(db.d["users"])))
         st = {"id": bid, "broadcast_id": bid, "status": "running", "total": len(users),
               "total_users": len(users), "total_success": 0, "total_error": 0, "total_failed": 0}
         self._bc[bid] = st
@@ -473,19 +531,18 @@ Bot = _TPYBotGlobal()
 class _TPYUser:
     """`User.*`  (per-user data)."""
     def getData(self, name, user=None, bot_id=None, api_key=None):
-        with db.lock:
-            return copy.deepcopy(db.d["user"].get(_uid(user), {}).get(name))
+        return _clone(db.d["user"].get(_uid(user), {}).get(name))
 
     def saveData(self, name, data, user=None, data_type=None, bot_id=None, api_key=None):
         with db.lock:
             db.d["user"].setdefault(_uid(user), {})[name] = _plain(data)
-            db.touch()
+            db.mark("user", _uid(user))
         return {"status": "success"}
 
     def deleteData(self, name, user=None, data_type=None, bot_id=None, api_key=None):
         with db.lock:
             db.d["user"].get(_uid(user), {}).pop(name, None)
-            db.touch()
+            db.mark("user", _uid(user))
         return {"status": "success"}
 
     def deleteAllData(self, name=None, old_data=False, except_data=None):
@@ -494,12 +551,12 @@ class _TPYUser:
             for k in list(d):
                 if k not in (except_data or []):
                     d.pop(k)
-            db.touch()
+            db.mark("user", _uid())
 
     def deleteAllDataOfUser(self, user):
         with db.lock:
             db.d["user"].pop(_uid(user), None)
-            db.touch()
+            db.mark("user", _uid(user))
 
     def getAllDataOfUser(self, user, output_format="json"):
         return copy.deepcopy(db.d["user"].get(_uid(user), {}))
@@ -533,7 +590,7 @@ class _Res:
     def set(self, n):
         with db.lock:
             db.d["res"].setdefault(self.scope, {})[self.name] = n
-            db.touch()
+            db.mark("res", self.scope)
         return n
 
     def add(self, n):
@@ -592,7 +649,7 @@ class _Webhook:
     def getUrlFor(self, command, user_id=None, **kw):
         base = WEBHOOK_BASE_URL or ("http://localhost:%d" % PORT)
         return "%s/webhook/%s/%s" % (base, urllib.parse.quote(str(command), safe=""),
-                                      urllib.parse.quote(str(user_id if user_id is not None else u), safe=""))
+                                      urllib.parse.quote(str(user_id if user_id is not None else _c("u")), safe=""))
 
 
 class _Libs:
@@ -17854,18 +17911,39 @@ COMMANDS.update({
 # ==========================================================================
 def _track_user(m):
     try:
+        STATS["updates"] += 1
         if m.chat.type == "private":
             uid = str(m.from_user.id)
-            with db.lock:
-                if uid not in db.d["users"]:
-                    db.d["users"].append(uid)
-                    db.touch()
+            now = time.time()
+            fu = m.from_user
+            if uid not in db.d["users"]:
+                db.d["users"][uid] = 1
+                db.mark("users", uid)
+            p = db.d["profiles"].get(uid)
+            if p is None:
+                db.d["profiles"][uid] = {"n": fu.first_name or "", "un": fu.username or "", "j": now, "l": now}
+                db.mark("profiles", uid)
+            elif now - p.get("l", 0) > 60:
+                p["l"] = now
+                p["n"] = fu.first_name or p.get("n", "")
+                p["un"] = fu.username or ""
+                db.mark("profiles", uid)
     except Exception:
         pass
 
 
 def _on_error(err_text, ctx):
     print("COMMAND ERROR:\n" + err_text, flush=True)
+    try:
+        lines = [l for l in err_text.strip().splitlines() if l.strip()]
+        cmd = ""
+        for l in lines:
+            if " in cmd_" in l:
+                cmd = l.split(" in cmd_")[-1].strip()
+        STATS["err_total"] += 1
+        STATS["errors"].append({"t": time.time(), "cmd": cmd or "-", "e": (lines[-1] if lines else "")[:300]})
+    except Exception:
+        pass
     if _find("!"):
         try:
             _invoke("!", **dict(ctx, options=err_text))
@@ -17903,12 +17981,12 @@ def on_message(m):
     if pend and is_cmd and pend.get("cancel"):
         with db.lock:
             db.d["pending"].pop(uid, None)
-            db.touch()
+            db.mark("pending", uid)
         pend = None
     if pend:
         with db.lock:
             db.d["pending"].pop(uid, None)
-            db.touch()
+            db.mark("pending", uid)
         ctx["options"] = pend.get("options")
         _handle(ctx, pend["cmd"], None)
         return
@@ -17952,6 +18030,208 @@ def _special(kind):
     return _h
 
 
+# ------------------------------------------------------- web admin panel
+def _panel_key():
+    return PANEL_KEY or hashlib.sha256((BOT_TOKEN + "|panel").encode()).hexdigest()[:12]
+
+
+def _panel_cookie():
+    return hashlib.sha256((_panel_key() + "|session").encode()).hexdigest()
+
+
+def _strip_html(s):
+    return re.sub(r"<[^>]+>", "", html.unescape(str(s))).strip()
+
+
+def _safe_len(x):
+    try:
+        return len(x)
+    except Exception:
+        return 0
+
+
+def _panel_data():
+    now = time.time()
+    B = db.d["bot"]
+    info = Bot.info()
+    profiles = db.d["profiles"]
+    full = B.get("FulBotUsrs") or []
+    total_users = max(_safe_len(full), len(db.d["users"]))
+    day = now - 86400
+    new24 = sum(1 for p in profiles.values() if p.get("j", 0) >= day)
+    act24 = sum(1 for p in profiles.values() if p.get("l", 0) >= day)
+    bal = []
+    for scope, vals in db.d["res"].items():
+        if scope.startswith("user:") and isinstance(vals.get("Balance"), (int, float)):
+            bal.append((scope[5:], float(vals["Balance"])))
+    bal.sort(key=lambda x: -x[1])
+    top = []
+    for uid, b in bal[:10]:
+        p = profiles.get(uid, {})
+        top.append({"id": uid, "name": p.get("n") or "User", "un": p.get("un") or "", "bal": round(b, 2)})
+    recent = sorted(profiles.items(), key=lambda kv: -kv[1].get("j", 0))[:10]
+    gws = B.get("AddedGateways") or []
+    gw_on = sum(1 for g in gws if isinstance(g, dict) and g.get("on", True))
+    runs = max(1, STATS["runs"])
+    errs = [{"t": datetime.fromtimestamp(e["t"]).strftime("%H:%M:%S"), "cmd": e["cmd"], "e": e["e"]}
+            for e in list(STATS["errors"])[-10:]][::-1]
+    acts = [_strip_html(a).replace("\n", " · ") for a in (B.get("AdmAC") or [])[-8:]][::-1]
+    up = int(now - STATS["start"])
+    return {
+        "bot": {"username": info.username or "", "name": info.first_name or "", "id": info.id or "",
+                "uptime": "%dd %02dh %02dm" % (up // 86400, up % 86400 // 3600, up % 3600 // 60),
+                "commands": len(COMMANDS), "python": platform.python_version(),
+                "db_kb": round(db.size() / 1024, 1), "threads": NUM_THREADS,
+                "url": WEBHOOK_BASE_URL or "-", "token": (BOT_TOKEN.split(":")[0] + ":••••••••")},
+        "users": {"total": total_users, "new24": new24, "active24": act24,
+                  "banned": _safe_len(B.get("AllBanUsers")), "verified": B.get("T_verifUsrs") or 0,
+                  "with_balance": sum(1 for _, b in bal if b > 0), "pending": len(db.d["pending"])},
+        "money": {"balance": round(sum(b for _, b in bal), 2), "payouts": B.get("WithdrawC") or 0,
+                  "gateways": len(gws), "gateways_on": gw_on, "pay_channel": str(B.get("Botpaychannel") or "Not set")},
+        "settings": {"Bot mode": B.get("BotMode") or "ON", "Withdraw mode": B.get("WithdrawMode") or "ON",
+                     "New user alerts": B.get("NewUserNotification") or "ON",
+                     "Per refer": "₹%s" % (B.get("PerRefer") or 0), "Daily bonus": "₹%s" % (B.get("DailyBonus") or 0),
+                     "Min withdraw": "₹%s" % (B.get("MinWith") or 0), "Max withdraw": "₹%s" % (B.get("MaxWith") or 0),
+                     "Tax": "%s" % (B.get("Tax") or 0), "Verification mode": B.get("VerifModeSystem") or 0,
+                     "Force-join channels": _safe_len(B.get("AllMainCh")),
+                     "Gift codes": "Available" if str(B.get("GiftAvailabe")) == "Y" else "None",
+                     "Admins": _safe_len(B.get("AllBotAdminss")), "Owner": B.get("Owner") or "Not set"},
+        "perf": {"updates": STATS["updates"], "runs": STATS["runs"], "avg_ms": round(STATS["ms"] / runs, 1),
+                 "errors": STATS["err_total"]},
+        "top_cmds": [{"c": c, "n": n} for c, n in STATS["cmds"].most_common(8)],
+        "top_users": top,
+        "recent": [{"id": k, "name": v.get("n") or "User", "un": v.get("un") or "",
+                    "ago": int(now - v.get("j", now))} for k, v in recent],
+        "errors": errs, "actions": acts, "ts": int(now),
+    }
+
+
+_PANEL_LOGIN = """<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Bot Panel</title><style>
+*{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;background:radial-gradient(1200px 600px at 20% -10%,#3b2a8c55,transparent),#0b0d17;font-family:Inter,system-ui,sans-serif;color:#e8eaf6}
+form{width:min(360px,90vw);padding:32px;border-radius:20px;background:#ffffff0d;border:1px solid #ffffff1a;backdrop-filter:blur(14px);box-shadow:0 20px 60px #0008}
+h1{margin:0 0 4px;font-size:22px}p{margin:0 0 22px;color:#9aa3c7;font-size:14px}
+input{width:100%;padding:13px 14px;border-radius:12px;border:1px solid #ffffff22;background:#0b0d17aa;color:#fff;font-size:15px;outline:none}
+input:focus{border-color:#7c6cff}button{margin-top:14px;width:100%;padding:13px;border:0;border-radius:12px;background:linear-gradient(135deg,#7c6cff,#4cc9f0);color:#fff;font-weight:700;font-size:15px;cursor:pointer}
+.e{color:#ff7a90;font-size:13px;margin-top:10px}</style></head><body>
+<form method="post" action="/panel/login"><h1>🤖 Bot Control Panel</h1><p>Enter your panel key to continue</p>
+<input type="password" name="key" placeholder="Panel key" autofocus>__ERR__<button>Unlock</button></form></body></html>"""
+
+_PANEL_HTML = """<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Bot Panel</title><style>
+:root{--bg:#0b0d17;--card:#ffffff0c;--line:#ffffff17;--tx:#e8eaf6;--mu:#8f98c0;--a:#7c6cff;--b:#4cc9f0;--ok:#34d399;--bad:#fb7185;--warn:#fbbf24}
+*{box-sizing:border-box}body{margin:0;background:radial-gradient(1100px 520px at 10% -10%,#3b2a8c55,transparent),radial-gradient(900px 500px at 100% 0,#0e7490440,transparent),var(--bg);color:var(--tx);font-family:Inter,system-ui,-apple-system,Segoe UI,sans-serif;min-height:100vh}
+.wrap{max-width:1200px;margin:0 auto;padding:22px 16px 60px}
+header{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:22px}
+.logo{width:54px;height:54px;border-radius:16px;display:grid;place-items:center;font-size:28px;background:linear-gradient(135deg,var(--a),var(--b));box-shadow:0 10px 30px #7c6cff55}
+h1{margin:0;font-size:24px}.sub{color:var(--mu);font-size:14px;margin-top:2px}
+.pill{margin-left:auto;display:flex;gap:8px;align-items:center;padding:8px 14px;border-radius:999px;background:var(--card);border:1px solid var(--line);font-size:13px;color:var(--mu)}
+.dot{width:9px;height:9px;border-radius:50%;background:var(--ok);box-shadow:0 0 0 0 #34d39988;animation:p 1.8s infinite}@keyframes p{70%{box-shadow:0 0 0 9px #34d39900}}
+.grid{display:grid;gap:14px;grid-template-columns:repeat(auto-fit,minmax(210px,1fr))}
+.card{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:18px;backdrop-filter:blur(10px)}
+.stat .k{color:var(--mu);font-size:13px;display:flex;align-items:center;gap:8px}.stat .v{font-size:30px;font-weight:800;margin-top:8px;letter-spacing:-.5px}
+.stat .s{color:var(--mu);font-size:12px;margin-top:4px}.ico{width:30px;height:30px;border-radius:9px;display:grid;place-items:center;background:#ffffff12}
+h2{font-size:15px;margin:0 0 14px;color:#cfd5f5;display:flex;align-items:center;gap:8px}
+.two{display:grid;gap:14px;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));margin-top:14px}
+table{width:100%;border-collapse:collapse;font-size:14px}td,th{padding:9px 6px;border-bottom:1px solid var(--line);text-align:left}th{color:var(--mu);font-weight:600;font-size:12px}tr:last-child td{border:0}
+.kv{display:grid;grid-template-columns:1fr auto;gap:0}.kv div{padding:9px 0;border-bottom:1px solid var(--line);font-size:14px}.kv div:nth-last-child(-n+2){border:0}.kv .r{text-align:right;font-weight:600}
+.badge{padding:3px 10px;border-radius:999px;font-size:12px;font-weight:700}.on{background:#34d39922;color:var(--ok)}.off{background:#fb718522;color:var(--bad)}.neu{background:#7c6cff22;color:#b9b1ff}
+.bar{height:8px;border-radius:99px;background:#ffffff12;overflow:hidden;margin-top:6px}.bar i{display:block;height:100%;background:linear-gradient(90deg,var(--a),var(--b));border-radius:99px;transition:width .6s}
+.mu{color:var(--mu)}.empty{color:var(--mu);font-size:14px;padding:8px 0}.err{font-size:12.5px;color:#fda4af;word-break:break-word}
+.act{font-size:13px;padding:8px 0;border-bottom:1px solid var(--line);color:#cfd5f5}.act:last-child{border:0}
+footer{margin-top:26px;text-align:center;color:var(--mu);font-size:12px}
+</style></head><body><div class="wrap">
+<header><div class="logo">🤖</div><div><h1 id="bn">Loading…</h1><div class="sub" id="bu"></div></div>
+<div class="pill"><span class="dot"></span><span id="up">online</span></div></header>
+<div class="grid" id="stats"></div>
+<div class="two"><div class="card"><h2>⚙️ Bot settings</h2><div class="kv" id="set"></div></div>
+<div class="card"><h2>🖥️ Server &amp; performance</h2><div class="kv" id="srv"></div></div></div>
+<div class="two"><div class="card"><h2>🏆 Top balances</h2><div id="top"></div></div>
+<div class="card"><h2>🆕 Newest users</h2><div id="rec"></div></div></div>
+<div class="two"><div class="card"><h2>⚡ Most used commands</h2><div id="cmds"></div></div>
+<div class="card"><h2>📝 Recent admin actions</h2><div id="acts"></div></div></div>
+<div class="card" style="margin-top:14px"><h2>🚨 Recent errors</h2><div id="errs"></div></div>
+<footer>Auto refresh every 5s · <span id="ts"></span></footer></div>
+<script>
+const $=id=>document.getElementById(id);
+const n=x=>Number(x).toLocaleString('en-IN');
+const bd=v=>{v=String(v);const on=/^(ON|Available)$/i.test(v),off=/^(OFF|None)$/i.test(v);return `<span class="badge ${on?'on':off?'off':'neu'}">${v}</span>`};
+const card=(i,k,v,s)=>`<div class="card stat"><div class="k"><span class="ico">${i}</span>${k}</div><div class="v">${v}</div><div class="s">${s||'&nbsp;'}</div></div>`;
+const kv=o=>Object.entries(o).map(([k,v])=>`<div class="mu">${k}</div><div class="r">${v}</div>`).join('');
+const ago=s=>s<60?s+'s ago':s<3600?Math.floor(s/60)+'m ago':s<86400?Math.floor(s/3600)+'h ago':Math.floor(s/86400)+'d ago';
+const esc=s=>String(s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+async function load(){
+ let r=await fetch('/panel/api');if(r.status==401){location='/panel';return}
+ const d=await r.json(),b=d.bot,u=d.users,m=d.money,p=d.perf;
+ $('bn').textContent=b.name||'Bot';$('bu').innerHTML='@'+b.username+' · id '+b.id;document.title='@'+b.username+' · Panel';
+ $('up').textContent='online · '+b.uptime;
+ $('stats').innerHTML=card('👥','Total users',n(u.total),'+'+n(u.new24)+' in last 24h')+
+  card('🔥','Active (24h)',n(u.active24),u.total?Math.round(u.active24*100/u.total)+'% of users':'')+
+  card('💰','Total balance','₹'+n(m.balance),n(u.with_balance)+' users have balance')+
+  card('💸','Payouts',n(m.payouts),'Channel: '+esc(m.pay_channel))+
+  card('✅','Verified',n(u.verified),n(u.banned)+' banned')+
+  card('🏦','Gateways',m.gateways_on+' / '+m.gateways,'enabled')+
+  card('⚡','Avg response',p.avg_ms+' ms',n(p.runs)+' commands run')+
+  card('🚨','Errors',n(p.errors),p.errors?'see list below':'all good');
+ const s=d.settings;const sset={};for(const k in s){sset[k]=/mode|alerts|Gift/i.test(k)?bd(s[k]):esc(s[k])}$('set').innerHTML=kv(sset);
+ $('srv').innerHTML=kv({'Username':'@'+b.username,'Token':b.token,'Commands loaded':b.commands,'Worker threads':b.threads,'Python':b.python,'Database':b.db_kb+' KB','Updates handled':n(p.updates),'Pending inputs':n(u.pending),'Public URL':esc(b.url)});
+ $('top').innerHTML=d.top_users.length?'<table><tr><th>#</th><th>User</th><th>Balance</th></tr>'+d.top_users.map((x,i)=>`<tr><td>${i+1}</td><td>${esc(x.name)}<div class="mu" style="font-size:12px">${x.un?'@'+esc(x.un)+' · ':''}${x.id}</div></td><td><b>₹${n(x.bal)}</b></td></tr>`).join('')+'</table>':'<div class="empty">No balances yet</div>';
+ $('rec').innerHTML=d.recent.length?'<table><tr><th>User</th><th>Joined</th></tr>'+d.recent.map(x=>`<tr><td>${esc(x.name)}<div class="mu" style="font-size:12px">${x.un?'@'+esc(x.un)+' · ':''}${x.id}</div></td><td class="mu">${ago(x.ago)}</td></tr>`).join('')+'</table>':'<div class="empty">No users yet</div>';
+ const mx=Math.max(1,...d.top_cmds.map(x=>x.n));
+ $('cmds').innerHTML=d.top_cmds.length?d.top_cmds.map(x=>`<div style="margin-bottom:12px"><div style="display:flex;justify-content:space-between;font-size:14px"><span>${esc(x.c)}</span><b>${n(x.n)}</b></div><div class="bar"><i style="width:${x.n*100/mx}%"></i></div></div>`).join(''):'<div class="empty">No commands run yet</div>';
+ $('acts').innerHTML=d.actions.length?d.actions.map(a=>`<div class="act">${esc(a)}</div>`).join(''):'<div class="empty">No admin actions yet</div>';
+ $('errs').innerHTML=d.errors.length?d.errors.map(e=>`<div class="act"><span class="mu">${e.t} · ${esc(e.cmd)}</span><div class="err">${esc(e.e)}</div></div>`).join(''):'<div class="empty">🎉 No errors since last restart</div>';
+ $('ts').textContent='updated '+new Date(d.ts*1000).toLocaleTimeString();
+}
+load();setInterval(load,5000);
+</script></body></html>"""
+
+
+def _panel_http(h, p):
+    """Handle /panel, /panel/login, /panel/api.  Returns True when the request was a panel request."""
+    path = p.path.rstrip("/") or "/"
+    if not path.startswith("/panel"):
+        return False
+
+    def send(code, body, ctype="text/html; charset=utf-8", extra=None):
+        data = body if isinstance(body, bytes) else body.encode("utf-8")
+        h.send_response(code)
+        h.send_header("Content-Type", ctype)
+        h.send_header("Content-Length", str(len(data)))
+        h.send_header("Cache-Control", "no-store")
+        for k, v in (extra or {}).items():
+            h.send_header(k, v)
+        h.end_headers()
+        h.wfile.write(data)
+
+    cookie = _panel_cookie()
+    authed = ("pk=" + cookie) in (h.headers.get("Cookie") or "")
+    q = urllib.parse.parse_qs(p.query)
+    setck = {"Set-Cookie": "pk=%s; Path=/; HttpOnly; SameSite=Lax; Max-Age=2592000" % cookie}
+    if path == "/panel/login" and h.command == "POST":
+        n = int(h.headers.get("Content-Length") or 0)
+        form = urllib.parse.parse_qs(h.rfile.read(n).decode("utf-8", "ignore")) if n else {}
+        if hmac.compare_digest((form.get("key") or [""])[0], _panel_key()):
+            send(302, "", extra=dict(setck, Location="/panel"))
+        else:
+            send(401, _PANEL_LOGIN.replace("__ERR__", '<div class="e">Wrong key, try again</div>'))
+        return True
+    if path == "/panel" and q.get("key") and hmac.compare_digest(q["key"][0], _panel_key()):
+        send(302, "", extra=dict(setck, Location="/panel"))
+        return True
+    if not authed:
+        if path == "/panel/api":
+            send(401, "{}", "application/json")
+        else:
+            send(200, _PANEL_LOGIN.replace("__ERR__", ""))
+        return True
+    if path == "/panel/api":
+        send(200, json.dumps(_panel_data(), ensure_ascii=False, default=str), "application/json")
+    else:
+        send(200, _PANEL_HTML)
+    return True
+
+
 # ------------------------------------------------------- webhook server
 def _start_webhook_server():
     from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -17960,6 +18240,8 @@ def _start_webhook_server():
         def _go(self):
             try:
                 p = urllib.parse.urlparse(self.path)
+                if _panel_http(self, p):
+                    return
                 parts = p.path.strip("/").split("/")
                 if p.path in ("/", "/health", "/healthz"):          # Render health check
                     self.send_response(200); self.end_headers(); self.wfile.write(b"Bot is running"); return
@@ -18010,6 +18292,20 @@ def _keep_alive():
     threading.Thread(target=_loop, daemon=True).start()
 
 
+def _seed_admins():
+    """OWNER_ID / ADMIN_IDS env vars -> these users are always bot owner / admins (survives db resets)."""
+    ids = [x for x in ([OWNER_ID] + ADMIN_IDS) if x]
+    if not ids:
+        return
+    admins = [str(a) for a in (Bot.getData("AllBotAdminss") or [])]
+    for i in ids:
+        if i not in admins:
+            admins.append(i)
+    Bot.saveData("AllBotAdminss", admins)
+    if OWNER_ID:
+        Bot.saveData("Owner", OWNER_ID)
+
+
 def main():
     if "PUT_YOUR_BOT_TOKEN_HERE" in BOT_TOKEN:
         sys.exit("Set BOT_TOKEN first:  BOT_TOKEN=123:ABC python %s" % os.path.basename(__file__))
@@ -18031,10 +18327,18 @@ def main():
     _api.chat_member_handler(func=lambda c: True)(_special("chat_member"))
     _api.my_chat_member_handler(func=lambda c: True)(_special("my_chat_member"))
     _api.chat_join_request_handler(func=lambda c: True)(_special("chat_join_request"))
+    _seed_admins()
     _start_webhook_server()
     _keep_alive()
+    base = WEBHOOK_BASE_URL or ("http://localhost:%d" % PORT)
+    print("=" * 60)
+    print("WEB PANEL : %s/panel" % base)
+    print("PANEL KEY : %s" % _panel_key())
+    if not (OWNER_ID or ADMIN_IDS) and not Bot.getData("AllBotAdminss"):
+        print("WARNING   : OWNER_ID not set -> the first person who sends /admin becomes the owner!")
+    print("=" * 60, flush=True)
     print("%d commands loaded - bot started" % len(COMMANDS))
-    _api.infinity_polling(allowed_updates=["message", "callback_query", "chat_member",
+    _api.infinity_polling(timeout=30, long_polling_timeout=30, allowed_updates=["message", "callback_query", "chat_member",
                                            "my_chat_member", "chat_join_request"],
                           skip_pending=False)
 
